@@ -68,6 +68,7 @@ class ChatResponse(BaseModel):
     source: str
     created_tasks: list[dict[str, str]]
     created_events: list[dict[str, str]]
+    completed_tasks: list[dict[str, str]]
 
 
 class TaskBase(BaseModel):

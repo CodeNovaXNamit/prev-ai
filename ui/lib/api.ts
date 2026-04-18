@@ -45,6 +45,7 @@ export type ChatResponse = {
   source: string;
   created_tasks: Array<{ id: string; title: string }>;
   created_events: Array<{ id: string; title: string }>;
+  completed_tasks: Array<{ id: string; title: string }>;
 };
 
 export type UserMemory = {

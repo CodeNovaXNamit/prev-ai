@@ -72,6 +72,27 @@ def test_chat_endpoint_uses_fallback_context(client) -> None:
     assert tasks_response.json()[0]["title"] == "finish report"
 
 
+def test_chat_can_mark_latest_task_completed(client) -> None:
+    created = client.post(
+        "/tasks",
+        json={"title": "Finish report", "description": "For review", "priority": "medium", "completed": False},
+    )
+    assert created.status_code == 200
+
+    response = client.post("/chat", json={"message": "this task got completed"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "local-context"
+    assert payload["created_tasks"] == []
+    assert payload["completed_tasks"][0]["title"] == "Finish report"
+    assert "I marked this task as completed" in payload["response"]
+
+    tasks_response = client.get("/tasks")
+    assert tasks_response.status_code == 200
+    assert tasks_response.json()[0]["completed"] is True
+
+
 def test_chat_endpoint_saves_meeting_to_schedule(client) -> None:
     response = client.post(
         "/chat",

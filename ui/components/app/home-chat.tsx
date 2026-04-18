@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { apiRequest, ChatResponse } from "@/lib/api";
 
@@ -12,6 +12,7 @@ type Message = {
 };
 
 export function HomeChat() {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
@@ -20,29 +21,60 @@ export function HomeChat() {
     },
   ]);
   const [value, setValue] = useState("");
-  const [files, setFiles] = useState<string[]>([]);
+  const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pendingTasks, setPendingTasks] = useState<string[]>([]);
   const [pendingEvents, setPendingEvents] = useState<string[]>([]);
+  const [completedTasks, setCompletedTasks] = useState<string[]>([]);
+  const [savedSummaryTitle, setSavedSummaryTitle] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const sendMessage = async () => {
     const trimmed = value.trim();
-    if (!trimmed || loading) {
+    if ((!trimmed && files.length === 0) || loading) {
       return;
     }
 
-    setMessages((current) => [...current, { id: `${Date.now()}`, role: "user", text: trimmed }]);
+    const userText = trimmed || `Summarize uploaded file${files.length > 1 ? "s" : ""}`;
+    setMessages((current) => [...current, { id: `${Date.now()}`, role: "user", text: userText }]);
     setValue("");
     setError(null);
     setPendingTasks([]);
     setPendingEvents([]);
+    setCompletedTasks([]);
+    setSavedSummaryTitle(null);
     setLoading(true);
 
     try {
+      if (files.length > 0) {
+        const filePayloads = await Promise.all(
+          files.map(async (file) => ({
+            name: file.name,
+            text: await file.text(),
+          })),
+        );
+        const summaryTitle =
+          files.length === 1 ? `Summary of ${files[0].name}` : `Summary of ${files.length} uploaded files`;
+        const noteText = [
+          trimmed ? `User context:\n${trimmed}` : "User context:\nSummarize the uploaded file content.",
+          ...filePayloads.map(
+            (file) => `File: ${file.name}\n${file.text.trim() || "No readable text content found."}`,
+          ),
+        ].join("\n\n");
+
+        await apiRequest<{ id: string; title: string; summary: string | null }>("/summarize", {
+          method: "POST",
+          body: JSON.stringify({
+            title: summaryTitle,
+            note_text: noteText,
+          }),
+        });
+        setSavedSummaryTitle(summaryTitle);
+      }
+
       const payload = await apiRequest<ChatResponse>("/chat", {
         method: "POST",
-        body: JSON.stringify({ message: trimmed }),
+        body: JSON.stringify({ message: userText }),
       });
       setMessages((current) => [
         ...current,
@@ -55,6 +87,11 @@ export function HomeChat() {
       ]);
       setPendingTasks(payload.created_tasks.map((task) => task.title));
       setPendingEvents(payload.created_events.map((event) => event.title));
+      setCompletedTasks(payload.completed_tasks.map((task) => task.title));
+      setFiles([]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     } catch (requestError) {
       setError((requestError as Error).message);
     } finally {
@@ -73,21 +110,6 @@ export function HomeChat() {
       </div>
 
       <div className="panel stack-md">
-        <label className="upload-row">
-          <input
-            type="file"
-            multiple
-            className="hidden-input"
-            onChange={(event) =>
-              setFiles(Array.from(event.target.files ?? []).map((file) => file.name))
-            }
-          />
-          <span className="button-secondary">Upload Files</span>
-          <span className="muted-text">
-            {files.length ? files.join(", ") : "No files selected"}
-          </span>
-        </label>
-
         <div className="chat-box">
           {messages.map((message) => (
             <div
@@ -112,9 +134,39 @@ export function HomeChat() {
             Saved to schedule: {pendingEvents.join(", ")}
           </div>
         )}
+        {completedTasks.length > 0 && (
+          <div className="notice">
+            Marked completed: {completedTasks.join(", ")}
+          </div>
+        )}
+        {savedSummaryTitle && (
+          <div className="notice">
+            Saved to summaries: {savedSummaryTitle}
+          </div>
+        )}
         {error && <div className="error-text">{error}</div>}
 
+        {files.length > 0 && (
+          <div className="file-chip-row">
+            {files.map((file) => (
+              <div key={file.name} className="file-chip">
+                {file.name}
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="composer">
+          <label className="button-secondary upload-button">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden-input"
+              onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
+            />
+            Upload Files
+          </label>
           <input
             value={value}
             onChange={(event) => setValue(event.target.value)}
@@ -123,7 +175,7 @@ export function HomeChat() {
                 void sendMessage();
               }
             }}
-            placeholder="Type a message"
+            placeholder="Add context or ask a question"
             className="text-input"
           />
           <button type="button" onClick={() => void sendMessage()} className="button-primary">

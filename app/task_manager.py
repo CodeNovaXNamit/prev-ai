@@ -15,6 +15,21 @@ from app.utils import generate_id
 class TaskManager:
     """CRUD operations for encrypted task records."""
 
+    COMPLETION_PATTERNS = (
+        r"\bmark\s+(?P<title>.+?)\s+as\s+(?:completed|done|finished)\b",
+        r"\bcomplete\s+(?P<title>.+?)\b",
+        r"\bfinished\s+(?P<title>.+?)\b",
+        r"\bdone with\s+(?P<title>.+?)\b",
+    )
+    REFERENCE_PATTERNS = (
+        r"\bthis task\b",
+        r"\bthis todo\b",
+        r"\bthis item\b",
+        r"\bit is\b.*\b(?:completed|done|finished)\b",
+        r"\bit got\b.*\b(?:completed|done|finished)\b",
+        r"\bthis tasks?\b.*\b(?:completed|done|finished)\b",
+    )
+
     def __init__(
         self,
         session: Session,
@@ -93,6 +108,26 @@ class TaskManager:
             )
         return created
 
+    def complete_tasks_from_message(self, message: str) -> list[dict[str, Any]]:
+        """Mark tasks complete when the user uses completion phrasing in chat."""
+        normalized = " ".join(message.strip().split())
+
+        for pattern in self.COMPLETION_PATTERNS:
+            match = re.search(pattern, normalized, flags=re.IGNORECASE)
+            if not match:
+                continue
+            fragment = match.group("title").strip(" .")
+            task = self._find_task_for_completion(fragment)
+            if task is not None:
+                return [self.update_task(task["id"], completed=True)]
+
+        if any(re.search(pattern, normalized, flags=re.IGNORECASE) for pattern in self.REFERENCE_PATTERNS):
+            latest_open = next((task for task in self.list_tasks() if not task.get("completed")), None)
+            if latest_open is not None:
+                return [self.update_task(latest_open["id"], completed=True)]
+
+        return []
+
     def _extract_task_candidates(self, message: str) -> list[str]:
         """Infer tasks from explicit reminder-style user phrasing."""
         normalized = " ".join(message.strip().split())
@@ -116,6 +151,30 @@ class TaskManager:
             if candidates:
                 break
         return candidates
+
+    def _find_task_for_completion(self, fragment: str) -> dict[str, Any] | None:
+        """Return the best incomplete task match for a completion phrase."""
+        needle = self._normalize_text(fragment)
+        if not needle:
+            return None
+
+        incomplete = [task for task in self.list_tasks() if not task.get("completed")]
+        for task in incomplete:
+            title = self._normalize_text(str(task.get("title", "")))
+            if needle == title:
+                return task
+
+        for task in incomplete:
+            title = self._normalize_text(str(task.get("title", "")))
+            if needle in title or title in needle:
+                return task
+
+        return None
+
+    def _normalize_text(self, value: str) -> str:
+        """Lowercase and collapse punctuation for fuzzy task matching."""
+        cleaned = re.sub(r"[^a-z0-9\s]", " ", value.lower())
+        return " ".join(cleaned.split())
 
     def _serialize(self, task: TaskRecord) -> dict[str, Any]:
         """Convert an ORM row into an API payload."""

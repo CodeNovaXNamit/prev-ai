@@ -95,8 +95,13 @@ def get_system_status_service(session: DbSession) -> SystemStatusService:
 def _build_capture_response(
     created_tasks: list[dict[str, Any]],
     created_events: list[dict[str, Any]],
+    completed_tasks: list[dict[str, Any]],
 ) -> str | None:
     """Return a same-turn confirmation for locally captured tasks or events."""
+    if completed_tasks:
+        titles = ", ".join(task["title"] for task in completed_tasks[:3])
+        return f"I marked this task as completed: {titles}."
+
     if created_events:
         event = created_events[0]
         start = event.get("start_time", "")
@@ -147,10 +152,12 @@ def chat(
             source="memory",
             created_tasks=[],
             created_events=[],
+            completed_tasks=[],
         )
 
     captured_memories = user_memory.capture_memories_from_message(request.message)
     created_tasks = tasks.create_tasks_from_message(request.message)
+    completed_tasks = tasks.complete_tasks_from_message(request.message)
     created_events = scheduler.create_events_from_message(request.message)
     context = {
         "tasks": tasks.list_tasks()[:5],
@@ -163,8 +170,8 @@ def chat(
     if captured_memories:
         response = user_memory.build_capture_response(request.message, captured_memories) or ""
         source = "memory"
-    elif created_tasks or created_events:
-        response = _build_capture_response(created_tasks, created_events) or ""
+    elif created_tasks or created_events or completed_tasks:
+        response = _build_capture_response(created_tasks, created_events, completed_tasks) or ""
         source = "local-context"
     elif local_context_answer is not None:
         response = local_context_answer
@@ -175,6 +182,8 @@ def chat(
     analytics.track("chat", "message_sent", {"source": source})
     for task in created_tasks:
         analytics.track("tasks", "task_created_from_chat", {"task_id": task["id"]})
+    for task in completed_tasks:
+        analytics.track("tasks", "task_completed_from_chat", {"task_id": task["id"]})
     for event in created_events:
         analytics.track("schedule", "event_created_from_chat", {"event_id": event["id"]})
     for item in captured_memories:
@@ -184,6 +193,7 @@ def chat(
         source=source,
         created_tasks=[{"id": task["id"], "title": task["title"]} for task in created_tasks],
         created_events=[{"id": event["id"], "title": event["title"]} for event in created_events],
+        completed_tasks=[{"id": task["id"], "title": task["title"]} for task in completed_tasks],
     )
 
 

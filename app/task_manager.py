@@ -99,6 +99,8 @@ class TaskManager:
         patterns = [
             r"(?:add task|create task|todo|to-do|remember to|task:)\s+(?P<title>.+)",
             r"(?:i need to|need to)\s+(?P<title>.+)",
+            r"(?:remind me to|please remind me to|dont let me forget to|don't let me forget to)\s+(?P<title>.+)",
+            r"(?:save (?:this )?as a task|make (?:this )?a task)\s*:?\s*(?P<title>.+)",
         ]
         candidates: list[str] = []
         for pattern in patterns:

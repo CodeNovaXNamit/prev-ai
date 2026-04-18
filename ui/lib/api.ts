@@ -44,6 +44,13 @@ export type ChatResponse = {
   response: string;
   source: string;
   created_tasks: Array<{ id: string; title: string }>;
+  created_events: Array<{ id: string; title: string }>;
+};
+
+export type UserMemory = {
+  id: string;
+  key: string;
+  value: string;
 };
 
 export type AnalyticsPayload = {

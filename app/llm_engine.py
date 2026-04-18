@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from typing import Any
 
 import requests
@@ -71,6 +72,21 @@ class LocalLLMEngine:
         prompt += f"User message:\n{message}\n"
         return self.generate(prompt), "ollama"
 
+    def answer_from_local_context(self, message: str, context: dict[str, Any]) -> str | None:
+        """Answer directly from stored local context when possible."""
+        message_lower = message.lower()
+
+        if any(word in message_lower for word in ["schedule", "event", "calendar", "meeting", "appointment"]):
+            return self._format_schedule_for_query(context.get("events", []), message)
+
+        if any(word in message_lower for word in ["task", "todo", "to-do"]):
+            return self._format_tasks(context.get("tasks", []))
+
+        if any(word in message_lower for word in ["note", "summary", "summarize"]):
+            return self._format_notes(context.get("notes", []))
+
+        return None
+
     def _fallback(self, prompt: str) -> str:
         """Local deterministic fallback when Ollama is unavailable."""
         if "summary" in prompt.lower():
@@ -90,6 +106,9 @@ class LocalLLMEngine:
         if any(word in message_lower for word in ["note", "summary", "summarize"]):
             return self._format_notes(context.get("notes", []))
 
+        if any(word in message_lower for word in ["remember", "previous", "earlier", "history"]):
+            return self._format_recent_messages(context.get("recent_messages", []))
+
         return (
             "Ollama is not running, so full free-form chat is unavailable. "
             "I stayed fully offline. I can still answer from your local tasks, schedule, and notes."
@@ -104,6 +123,10 @@ class LocalLLMEngine:
             lines.append(f"Events: {context['events']}")
         if context.get("notes"):
             lines.append(f"Notes: {context['notes']}")
+        if context.get("recent_messages"):
+            lines.append(f"Recent chat memory: {context['recent_messages']}")
+        if context.get("remembered_facts"):
+            lines.append(f"Remembered user facts: {context['remembered_facts']}")
         return "\n".join(lines) + "\n\n"
 
     def _format_schedule(self, events: list[dict[str, Any]]) -> str:
@@ -113,6 +136,46 @@ class LocalLLMEngine:
 
         normalized = sorted(events, key=lambda event: event.get("start_time", ""))
         lines = ["Your local schedule:"]
+        for event in normalized[:5]:
+            start_time = self._format_datetime(event.get("start_time", ""))
+            end_time = self._format_datetime(event.get("end_time", ""))
+            location = event.get("location") or "No location"
+            lines.append(f"- {event.get('title', 'Untitled event')}: {start_time} to {end_time} at {location}")
+        return "\n".join(lines)
+
+    def _format_schedule_for_query(self, events: list[dict[str, Any]], message: str) -> str:
+        """Format schedule results with optional date/time filtering."""
+        if not events:
+            return "Your local schedule is empty."
+
+        filtered = events
+        query_date = self._extract_date_from_message(message)
+        if query_date is not None:
+            filtered = [
+                event for event in filtered if self._event_matches_date(event.get("start_time", ""), query_date)
+            ]
+
+        message_lower = message.lower()
+        if "morning" in message_lower:
+            filtered = [
+                event for event in filtered if self._event_hour(event.get("start_time", "")) is not None and self._event_hour(event.get("start_time", "")) < 12
+            ]
+        elif "afternoon" in message_lower:
+            filtered = [
+                event for event in filtered if self._event_hour(event.get("start_time", "")) is not None and 12 <= self._event_hour(event.get("start_time", "")) < 18
+            ]
+        elif "evening" in message_lower or "night" in message_lower:
+            filtered = [
+                event for event in filtered if self._event_hour(event.get("start_time", "")) is not None and self._event_hour(event.get("start_time", "")) >= 18
+            ]
+
+        if not filtered:
+            if query_date is not None:
+                return f"You do not have any saved appointments for {query_date.strftime('%B %d')} in the requested time window."
+            return "You do not have any saved appointments matching that request."
+
+        normalized = sorted(filtered, key=lambda event: event.get("start_time", ""))
+        lines = ["Your saved appointments:"]
         for event in normalized[:5]:
             start_time = self._format_datetime(event.get("start_time", ""))
             end_time = self._format_datetime(event.get("end_time", ""))
@@ -145,6 +208,19 @@ class LocalLLMEngine:
                 lines.append(f"- {note}")
         return "\n".join(lines)
 
+    def _format_recent_messages(self, messages: list[dict[str, Any]]) -> str:
+        """Format recent chat history into a readable memory answer."""
+        if not messages:
+            return "I do not have any recent chat memory saved yet."
+
+        lines = ["Recent chat memory:"]
+        for message in messages[-5:]:
+            role = message.get("role", "unknown")
+            content = str(message.get("content", "")).strip()
+            if content:
+                lines.append(f"- {role}: {content}")
+        return "\n".join(lines)
+
     def _format_datetime(self, value: str) -> str:
         """Convert ISO timestamps into a simple human-readable string."""
         if not value:
@@ -154,3 +230,37 @@ class LocalLLMEngine:
             return parsed.strftime("%Y-%m-%d %H:%M")
         except ValueError:
             return value
+
+    def _extract_date_from_message(self, message: str) -> datetime | None:
+        """Parse simple month/day date mentions from a user query."""
+        match = re.search(
+            r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?\b",
+            message,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+
+        month = match.group(1).title()
+        day = int(match.group(2))
+        for year in (datetime.now().year, datetime.now().year + 1, datetime.now().year - 1):
+            try:
+                return datetime.strptime(f"{month} {day} {year}", "%B %d %Y")
+            except ValueError:
+                continue
+        return None
+
+    def _event_matches_date(self, value: str, query_date: datetime) -> bool:
+        """Check whether an event timestamp falls on the query date."""
+        try:
+            parsed = datetime.fromisoformat(value)
+            return parsed.date() == query_date.date()
+        except ValueError:
+            return False
+
+    def _event_hour(self, value: str) -> int | None:
+        """Extract hour from ISO datetime."""
+        try:
+            return datetime.fromisoformat(value).hour
+        except ValueError:
+            return None

@@ -16,13 +16,14 @@ export function HomeChat() {
     {
       id: "welcome",
       role: "assistant",
-      text: "Ask me something. If you say things like 'remember to finish the report', I will save that as a task.",
+      text: "Ask me something. I can save tasks, and I can remember personal details like your name, city, or favorites for future chats.",
     },
   ]);
   const [value, setValue] = useState("");
   const [files, setFiles] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pendingTasks, setPendingTasks] = useState<string[]>([]);
+  const [pendingEvents, setPendingEvents] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
   const sendMessage = async () => {
@@ -35,6 +36,7 @@ export function HomeChat() {
     setValue("");
     setError(null);
     setPendingTasks([]);
+    setPendingEvents([]);
     setLoading(true);
 
     try {
@@ -52,6 +54,7 @@ export function HomeChat() {
         },
       ]);
       setPendingTasks(payload.created_tasks.map((task) => task.title));
+      setPendingEvents(payload.created_events.map((event) => event.title));
     } catch (requestError) {
       setError((requestError as Error).message);
     } finally {
@@ -64,8 +67,8 @@ export function HomeChat() {
       <div className="panel">
         <h1 className="page-title">Home</h1>
         <p className="page-copy">
-          Chat with the model and upload files for your local workflow. Tasks are saved only when
-          you ask for them in chat.
+          Chat with the model and upload files for your local workflow. Tasks and personal details
+          can be saved locally from chat.
         </p>
       </div>
 
@@ -102,6 +105,11 @@ export function HomeChat() {
         {pendingTasks.length > 0 && (
           <div className="notice">
             Saved to tasks: {pendingTasks.join(", ")}
+          </div>
+        )}
+        {pendingEvents.length > 0 && (
+          <div className="notice">
+            Saved to schedule: {pendingEvents.join(", ")}
           </div>
         )}
         {error && <div className="error-text">{error}</div>}

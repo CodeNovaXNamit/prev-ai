@@ -86,3 +86,31 @@ def test_summarizer_uses_extractive_fallback(session) -> None:
         )
 
     assert result["summary"].startswith("- ")
+
+
+def test_local_context_answers_specific_appointment_query() -> None:
+    engine = LocalLLMEngine(model_name="phi3", ollama_url="http://localhost:11434")
+    context = {
+        "tasks": [],
+        "events": [
+            {
+                "title": "Doctor appointment",
+                "start_time": "2026-04-20T09:30:00",
+                "end_time": "2026-04-20T10:00:00",
+                "location": "Clinic",
+            },
+            {
+                "title": "Evening call",
+                "start_time": "2026-04-20T18:00:00",
+                "end_time": "2026-04-20T18:30:00",
+                "location": "Remote",
+            },
+        ],
+        "notes": [],
+    }
+
+    result = engine.answer_from_local_context("what appointments do I have on April 20 morning", context)
+
+    assert result is not None
+    assert "Doctor appointment" in result
+    assert "Evening call" not in result

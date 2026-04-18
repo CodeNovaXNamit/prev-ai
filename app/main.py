@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -10,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from app.analytics import AnalyticsService
+from app.chat_memory import ChatMemoryService
 from app.config import (
     AnalyticsResponse,
     ChatRequest,
@@ -26,6 +28,7 @@ from app.config import (
 )
 from app.database import get_db, init_database
 from app.llm_engine import LocalLLMEngine
+from app.memory_service import UserMemoryService
 from app.scheduler import SchedulerManager
 from app.summarizer import NotesSummarizer
 from app.system_status import SystemStatusService
@@ -77,8 +80,38 @@ def get_analytics_service(session: DbSession) -> AnalyticsService:
     return AnalyticsService(session)
 
 
+def get_chat_memory_service(session: DbSession) -> ChatMemoryService:
+    return ChatMemoryService(session)
+
+
+def get_user_memory_service(session: DbSession) -> UserMemoryService:
+    return UserMemoryService(session)
+
+
 def get_system_status_service(session: DbSession) -> SystemStatusService:
     return SystemStatusService(session, llm_engine)
+
+
+def _build_capture_response(
+    created_tasks: list[dict[str, Any]],
+    created_events: list[dict[str, Any]],
+) -> str | None:
+    """Return a same-turn confirmation for locally captured tasks or events."""
+    if created_events:
+        event = created_events[0]
+        start = event.get("start_time", "")
+        try:
+            formatted = f"{datetime.fromisoformat(start):%B %d, %Y at %I:%M %p}"
+        except ValueError:
+            formatted = start
+        location = event.get("location") or "No location"
+        return f"I saved your event locally: {event['title']} on {formatted} in {location}."
+
+    if created_tasks:
+        titles = ", ".join(task["title"] for task in created_tasks[:3])
+        return f"I saved this task locally: {titles}."
+
+    return None
 
 
 @app.get("/health", response_model=HealthStatus)
@@ -99,26 +132,67 @@ def chat(
     tasks: Annotated[TaskManager, Depends(get_task_manager)],
     scheduler: Annotated[SchedulerManager, Depends(get_scheduler_manager)],
     notes: Annotated[NotesSummarizer, Depends(get_notes_service)],
+    memory: Annotated[ChatMemoryService, Depends(get_chat_memory_service)],
+    user_memory: Annotated[UserMemoryService, Depends(get_user_memory_service)],
     analytics: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ChatResponse:
     """Return an assistant response."""
+    memory.add_message("user", request.message)
+    recalled_answer = user_memory.answer_memory_query(request.message)
+    if recalled_answer is not None:
+        memory.add_message("assistant", recalled_answer)
+        analytics.track("chat", "memory_recalled", {"kind": "fact"})
+        return ChatResponse(
+            response=recalled_answer,
+            source="memory",
+            created_tasks=[],
+            created_events=[],
+        )
+
+    captured_memories = user_memory.capture_memories_from_message(request.message)
+    created_tasks = tasks.create_tasks_from_message(request.message)
+    created_events = scheduler.create_events_from_message(request.message)
     context = {
         "tasks": tasks.list_tasks()[:5],
         "events": scheduler.list_events()[:5],
         "notes": notes.list_notes()[:5],
+        "recent_messages": memory.list_recent_messages(limit=8),
+        "remembered_facts": user_memory.list_memories()[:5],
     }
-    created_tasks = tasks.create_tasks_from_message(request.message)
-    if created_tasks:
-        context["tasks"] = tasks.list_tasks()[:5]
-    response, source = llm_engine.chat(request.message, context=context)
+    local_context_answer = llm_engine.answer_from_local_context(request.message, context)
+    if captured_memories:
+        response = user_memory.build_capture_response(request.message, captured_memories) or ""
+        source = "memory"
+    elif created_tasks or created_events:
+        response = _build_capture_response(created_tasks, created_events) or ""
+        source = "local-context"
+    elif local_context_answer is not None:
+        response = local_context_answer
+        source = "local-context"
+    else:
+        response, source = llm_engine.chat(request.message, context=context)
+    memory.add_message("assistant", response)
     analytics.track("chat", "message_sent", {"source": source})
     for task in created_tasks:
         analytics.track("tasks", "task_created_from_chat", {"task_id": task["id"]})
+    for event in created_events:
+        analytics.track("schedule", "event_created_from_chat", {"event_id": event["id"]})
+    for item in captured_memories:
+        analytics.track("chat", "memory_saved", {"key": item["key"]})
     return ChatResponse(
         response=response,
         source=source,
         created_tasks=[{"id": task["id"], "title": task["title"]} for task in created_tasks],
+        created_events=[{"id": event["id"], "title": event["title"]} for event in created_events],
     )
+
+
+@app.get("/memories")
+def list_memories(
+    user_memory: Annotated[UserMemoryService, Depends(get_user_memory_service)],
+) -> list[dict[str, str]]:
+    """List saved personal facts remembered locally for the user."""
+    return user_memory.list_memories()
 
 
 @app.get("/tasks")

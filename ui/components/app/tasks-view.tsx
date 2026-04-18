@@ -8,23 +8,38 @@ export function TasksView() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadTasks = () => {
     apiRequest<Task[]>("/tasks")
       .then(setTasks)
       .catch((requestError) => setError((requestError as Error).message));
+  };
+
+  useEffect(() => {
+    loadTasks();
   }, []);
 
   return (
     <section className="stack-lg">
       <div className="panel">
-        <h1 className="page-title">Tasks</h1>
-        <p className="page-copy">
-          Tasks shown here are created from chat messages only. There is no manual add form on this page.
-        </p>
+        <div className="row-between">
+          <div>
+            <h1 className="page-title">Tasks</h1>
+            <p className="page-copy">
+              Tasks saved from chat or the dashboard appear here. Use refresh to pull the latest local task list.
+            </p>
+          </div>
+          <button type="button" className="button-secondary" onClick={loadTasks}>
+            Refresh
+          </button>
+        </div>
       </div>
       {error && <div className="error-text">{error}</div>}
       <div className="stack-md">
-        {tasks.length === 0 && <div className="panel muted-text">No tasks saved from chat yet.</div>}
+        {tasks.length === 0 && (
+          <div className="panel muted-text">
+            No tasks saved from chat yet. Meetings and appointments are stored in the schedule, not in tasks.
+          </div>
+        )}
         {tasks.map((task) => (
           <div key={task.id} className="panel">
             <div className="row-between">

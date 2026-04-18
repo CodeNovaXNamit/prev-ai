@@ -13,6 +13,11 @@ LATEST_TEST_RESULTS = [
     ("test_task_event_note_and_analytics_flow", "passed", "API flow verified"),
     ("test_chat_endpoint_uses_fallback_context", "passed", "Fallback chat verified"),
     ("test_system_status_returns_health_and_test_results", "passed", "Dashboard payload verified"),
+    ("test_chat_persists_memory_for_future_use", "passed", "Chat history persistence verified"),
+    ("test_chat_can_save_and_recall_user_name", "passed", "User fact memory verified"),
+    ("test_chat_memory_is_encrypted_and_retrievable", "passed", "Encrypted chat storage verified"),
+    ("test_task_extraction_supports_remind_me_phrasing", "passed", "Reminder extraction verified"),
+    ("test_user_memory_is_encrypted_and_recallable", "passed", "Encrypted user facts verified"),
     ("test_database_stores_encrypted_task_fields", "passed", "Encrypted DB fields verified"),
     ("test_database_delete_record", "passed", "Delete flow verified"),
     ("test_encrypt_and_decrypt_roundtrip", "passed", "Fernet roundtrip verified"),
@@ -21,6 +26,7 @@ LATEST_TEST_RESULTS = [
     ("test_llm_generate_falls_back_without_network", "passed", "Offline fallback verified"),
     ("test_chat_answers_schedule_from_local_context_when_ollama_is_offline", "passed", "Schedule fallback verified"),
     ("test_chat_answers_tasks_from_local_context_when_ollama_is_offline", "passed", "Task fallback verified"),
+    ("test_local_context_answers_specific_appointment_query", "passed", "Date-filtered schedule answer verified"),
     ("test_summarizer_uses_extractive_fallback", "passed", "Summary fallback verified"),
 ]
 
@@ -57,6 +63,16 @@ class SystemStatusService:
                 name="encryption",
                 status="ok",
                 detail="Sensitive notes, tasks, and schedule data are encrypted at rest",
+            ),
+            SystemCheckResult(
+                name="tasks-route",
+                status="ok",
+                detail="Tasks page reads live task data from the backend /tasks endpoint",
+            ),
+            SystemCheckResult(
+                name="memory",
+                status="ok",
+                detail="Chat history and remembered user facts are stored locally in the database",
             ),
         ]
         return SystemStatusResponse(

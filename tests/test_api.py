@@ -63,11 +63,35 @@ def test_chat_endpoint_uses_fallback_context(client) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["source"] == "fallback"
+    assert payload["source"] == "local-context"
+    assert payload["response"] == "I saved this task locally: finish report."
     assert payload["created_tasks"][0]["title"] == "finish report"
+    assert payload["created_events"] == []
     tasks_response = client.get("/tasks")
     assert tasks_response.status_code == 200
     assert tasks_response.json()[0]["title"] == "finish report"
+
+
+def test_chat_endpoint_saves_meeting_to_schedule(client) -> None:
+    response = client.post(
+        "/chat",
+        json={"message": "I have a meeting on 20th april at 9am in chandigarh"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "local-context"
+    assert payload["created_tasks"] == []
+    assert payload["created_events"][0]["title"] == "Meeting"
+    assert "April 20, 2026 at 09:00 AM" in payload["response"]
+    assert "Chandigarh" in payload["response"]
+
+    events_response = client.get("/events")
+    assert events_response.status_code == 200
+    events = events_response.json()
+    assert events[0]["title"] == "Meeting"
+    assert events[0]["start_time"].startswith("2026-04-20T09:00:00")
+    assert events[0]["location"] == "Chandigarh"
 
 
 def test_system_status_returns_health_and_test_results(client) -> None:
@@ -78,3 +102,48 @@ def test_system_status_returns_health_and_test_results(client) -> None:
     assert payload["health"]["app_name"] == "Privacy AI Assistant"
     assert payload["database_connected"] is True
     assert len(payload["latest_test_results"]) >= 1
+
+
+def test_chat_persists_memory_for_future_use(client) -> None:
+    with patch("app.main.llm_engine.is_available", return_value=False):
+        first = client.post("/chat", json={"message": "remember that my favorite stack is python"})
+        assert first.status_code == 200
+
+        second = client.post("/chat", json={"message": "what do you remember from earlier"})
+
+    assert second.status_code == 200
+    payload = second.json()
+    assert "Recent chat memory:" in payload["response"]
+    assert "my favorite stack is python" in payload["response"]
+
+
+def test_chat_can_save_and_recall_user_name(client) -> None:
+    remember = client.post("/chat", json={"message": "my name is namit greet me"})
+
+    assert remember.status_code == 200
+    remember_payload = remember.json()
+    assert remember_payload["source"] == "memory"
+    assert remember_payload["response"] == "Hello, Namit. I'll remember that."
+
+    recall = client.post("/chat", json={"message": "what is my name"})
+
+    assert recall.status_code == 200
+    recall_payload = recall.json()
+    assert recall_payload["source"] == "memory"
+    assert recall_payload["response"] == "Your name is Namit."
+
+
+def test_chat_can_save_location_and_list_memories(client) -> None:
+    remember = client.post("/chat", json={"message": "I live in Chandigarh"})
+
+    assert remember.status_code == 200
+    assert remember.json()["source"] == "memory"
+
+    recall = client.post("/chat", json={"message": "where do i live"})
+    assert recall.status_code == 200
+    assert recall.json()["response"] == "You told me you are from Chandigarh."
+
+    memories = client.get("/memories")
+    assert memories.status_code == 200
+    payload = memories.json()
+    assert any(item["key"] == "location" and item["value"] == "Chandigarh" for item in payload)

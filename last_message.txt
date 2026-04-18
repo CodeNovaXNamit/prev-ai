@@ -1,0 +1,35 @@
+That is a Docker layer/cache corruption issue, not an app code issue.
+
+Fix it by clearing the broken build cache and rebuilding.
+
+Run this in PowerShell:
+
+docker compose down
+docker builder prune -a -f
+docker image prune -a -f
+docker system prune -f
+docker compose build --no-cache
+docker compose up -d
+
+If Docker still throws the same snapshot error, restart Docker Desktop completely, then run:
+
+docker compose build --no-cache
+docker compose up -d
+
+If it still fails after restart, the next step is usually:
+
+docker system prune -a --volumes -f
+
+That is more aggressive and will remove unused images, containers, networks, build cache, and unused volumes.
+
+After the stack starts, verify:
+
+docker compose ps
+docker compose logs backend --tail 100
+
+Then test:
+- http://localhost:3000
+- http://localhost:8000/health
+- http://localhost:8000/system/status
+
+If you want, after you run the first prune/rebuild sequence, send me the new output and I’ll tell you the exact next step.

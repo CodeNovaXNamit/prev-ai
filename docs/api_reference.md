@@ -27,12 +27,18 @@ Response:
 
 ```json
 {
-  "response": "Assistant reply"
+  "response": "Assistant reply",
+  "source": "local-context",
+  "created_tasks": [],
+  "created_events": []
 }
 ```
 
 ### `GET /tasks`
 Returns all saved tasks.
+
+### `GET /memories`
+Returns all locally remembered user facts such as name, location, and favorites.
 
 ### `POST /tasks`
 Request body:

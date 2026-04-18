@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -14,6 +15,17 @@ from app.utils import generate_id
 
 class SchedulerManager:
     """CRUD operations for calendar events."""
+
+    EVENT_KEYWORDS = ("meeting", "appointment", "call", "interview", "demo", "session", "event")
+    SAVE_PATTERNS = (
+        r"\bi have\b",
+        r"\bschedule\b",
+        r"\badd\b",
+        r"\bbook\b",
+        r"\bset up\b",
+        r"\bsave\b",
+        r"\bcreate\b",
+    )
 
     def __init__(
         self,
@@ -78,6 +90,13 @@ class SchedulerManager:
         self.session.commit()
         return True
 
+    def create_events_from_message(self, message: str, now: datetime | None = None) -> list[dict[str, Any]]:
+        """Persist meeting-style event intents extracted from chat."""
+        candidate = self._extract_event_candidate(message, now=now)
+        if candidate is None:
+            return []
+        return [self.add_event(**candidate)]
+
     def _serialize(self, event: EventRecord) -> dict[str, Any]:
         """Convert an ORM row into an API payload."""
         return {
@@ -90,3 +109,101 @@ class SchedulerManager:
             "created_at": event.created_at.isoformat(),
             "updated_at": event.updated_at.isoformat(),
         }
+
+    def _extract_event_candidate(
+        self,
+        message: str,
+        now: datetime | None = None,
+    ) -> dict[str, str] | None:
+        """Infer a dated event from a natural-language chat message."""
+        normalized = " ".join(message.strip().split())
+        lowered = normalized.lower()
+        if not any(re.search(pattern, lowered) for pattern in self.SAVE_PATTERNS):
+            return None
+        keyword = next((item for item in self.EVENT_KEYWORDS if item in lowered), None)
+        if keyword is None:
+            return None
+
+        event_date = self._extract_event_date(normalized, now=now)
+        event_time = self._extract_event_time(normalized)
+        if event_date is None or event_time is None:
+            return None
+
+        start_time = datetime.combine(event_date.date(), event_time)
+        end_time = start_time + timedelta(hours=1)
+        title = self._extract_event_title(normalized, keyword)
+        location = self._extract_location(normalized)
+        return {
+            "title": title,
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat(),
+            "location": location,
+            "notes": "Captured from chat",
+        }
+
+    def _extract_event_title(self, message: str, keyword: str) -> str:
+        """Build a readable event title from the message."""
+        match = re.search(
+            rf"\b{keyword}\b(?:\s+with\s+(?P<subject>.+?))?(?=\s+\b(?:on|at|in)\b|[.,!?]|$)",
+            message,
+            flags=re.IGNORECASE,
+        )
+        subject = ""
+        if match and match.group("subject"):
+            subject = match.group("subject").strip(" .")
+        base = keyword.capitalize()
+        if subject:
+            return f"{base} with {subject[:80]}"
+        return base
+
+    def _extract_event_date(self, message: str, now: datetime | None = None) -> datetime | None:
+        """Extract a date from day-month or month-day phrasing."""
+        now = now or datetime.now()
+        patterns = (
+            r"\b(?P<day>\d{1,2})(?:st|nd|rd|th)?\s+(?P<month>january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+(?P<year>\d{4}))?\b",
+            r"\b(?P<month>january|february|march|april|may|june|july|august|september|october|november|december)\s+(?P<day>\d{1,2})(?:st|nd|rd|th)?(?:\s+(?P<year>\d{4}))?\b",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, message, flags=re.IGNORECASE)
+            if not match:
+                continue
+            month = match.group("month").title()
+            day = int(match.group("day"))
+            year = int(match.group("year")) if match.groupdict().get("year") else now.year
+            try:
+                parsed = datetime.strptime(f"{month} {day} {year}", "%B %d %Y")
+            except ValueError:
+                continue
+            if match.groupdict().get("year") is None and parsed.date() < now.date():
+                parsed = parsed.replace(year=parsed.year + 1)
+            return parsed
+        return None
+
+    def _extract_event_time(self, message: str) -> datetime.time | None:
+        """Extract a clock time from the message."""
+        match = re.search(
+            r"\bat\s+(?P<time>\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b",
+            message,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        raw_time = re.sub(r"\s+", "", match.group("time").lower())
+        formats = ("%I%p", "%I:%M%p", "%H:%M", "%H")
+        for fmt in formats:
+            try:
+                return datetime.strptime(raw_time, fmt).time()
+            except ValueError:
+                continue
+        return None
+
+    def _extract_location(self, message: str) -> str:
+        """Extract a simple trailing location clause."""
+        match = re.search(
+            r"\bin\s+(?P<location>[a-z][a-z\s.'-]{1,80})(?=$|[.,!?])",
+            message,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return ""
+        return " ".join(match.group("location").strip(" .").split()).title()

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { ShieldIcon } from "@/components/ui/icons";
-import { HealthStatus, apiRequest } from "@/lib/api";
+import { HealthStatus, UserMemory, apiRequest } from "@/lib/api";
 
 const indicators = [
   "No data leaves device",
@@ -14,6 +14,7 @@ const indicators = [
 export function PrivacyPanel() {
   const [localMode, setLocalMode] = useState(true);
   const [status, setStatus] = useState<HealthStatus | null>(null);
+  const [memories, setMemories] = useState<UserMemory[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -22,6 +23,10 @@ export function PrivacyPanel() {
         setStatus(payload);
         setLocalMode(payload.offline_mode);
       })
+      .catch((requestError) => setError((requestError as Error).message));
+
+    apiRequest<UserMemory[]>("/memories")
+      .then(setMemories)
       .catch((requestError) => setError((requestError as Error).message));
   }, []);
 
@@ -115,6 +120,36 @@ export function PrivacyPanel() {
               <div className="h-2 w-full animate-pulseLine rounded-full bg-gradient-to-r from-[var(--info)] to-[var(--accent)]" />
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-[28px] border border-white/10 bg-black/10 p-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-sm uppercase tracking-[0.22em] text-[var(--info)]">
+              Personal memory
+            </div>
+            <h4 className="mt-2 text-2xl font-semibold">Saved user details</h4>
+            <p className="mt-2 muted">
+              Facts remembered from chat stay in your local encrypted database and can be reused by the assistant.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {memories.length === 0 && (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 muted">
+              No personal details saved yet.
+            </div>
+          )}
+          {memories.map((memory) => (
+            <div key={memory.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="text-sm uppercase tracking-[0.18em] text-white/50">
+                {memory.key.replaceAll("_", " ")}
+              </div>
+              <div className="mt-2 text-lg font-semibold">{memory.value}</div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

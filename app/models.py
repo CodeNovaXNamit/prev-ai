@@ -63,6 +63,26 @@ class NoteRecord(TimestampMixin, Base):
     summary_encrypted: Mapped[str | None] = mapped_column(Text(), nullable=True)
 
 
+class ChatMessageRecord(TimestampMixin, Base):
+    """Encrypted chat history row."""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16))
+    content_encrypted: Mapped[str] = mapped_column(Text())
+
+
+class UserMemoryRecord(TimestampMixin, Base):
+    """Encrypted remembered user fact."""
+
+    __tablename__ = "user_memories"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), index=True)
+    value_encrypted: Mapped[str] = mapped_column(Text())
+
+
 class BehaviorEvent(TimestampMixin, Base):
     """Tracked interaction used for adapting the UI and analytics."""
 

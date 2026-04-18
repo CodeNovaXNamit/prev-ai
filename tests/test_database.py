@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import text
 
 from app.scheduler import SchedulerManager
@@ -34,3 +36,17 @@ def test_database_delete_record(session) -> None:
 
     assert deleted is True
     assert scheduler.list_events() == []
+
+
+def test_scheduler_extracts_meeting_from_chat_message(session) -> None:
+    scheduler = SchedulerManager(session)
+
+    created = scheduler.create_events_from_message(
+        "I have a meeting on 20th april at 9am in chandigarh",
+        now=datetime(2026, 4, 18, 12, 0, 0),
+    )
+
+    assert created[0]["title"] == "Meeting"
+    assert created[0]["start_time"].startswith("2026-04-20T09:00:00")
+    assert created[0]["end_time"].startswith("2026-04-20T10:00:00")
+    assert created[0]["location"] == "Chandigarh"

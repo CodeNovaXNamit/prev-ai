@@ -9,3 +9,5 @@ pymysql
 alembic
 pytest
 httpx
+chromadb
+sentence-transformers

@@ -8,6 +8,8 @@ services:
       MYSQL_DATABASE: prevai
       MYSQL_USER: prevai
       MYSQL_PASSWORD: prevai
+    ports:
+      - "3007:3006"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:

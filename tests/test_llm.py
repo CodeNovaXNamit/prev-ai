@@ -114,3 +114,56 @@ def test_local_context_answers_specific_appointment_query() -> None:
     assert result is not None
     assert "Doctor appointment" in result
     assert "Evening call" not in result
+
+
+def test_chat_prompt_filters_unrelated_context_for_general_query() -> None:
+    engine = LocalLLMEngine(model_name="phi3", ollama_url="http://localhost:11434")
+    context = {
+        "tasks": [{"title": "Write report", "completed": False, "due_date": "2026-04-18"}],
+        "events": [{"title": "Advisor meeting", "start_time": "2026-04-16T10:00:00", "end_time": "2026-04-16T10:30:00", "location": "Lab 2"}],
+        "notes": [{"title": "LM Studio", "summary": "- Some summary"}],
+        "recent_messages": [{"role": "user", "content": "my name is namit"}],
+        "remembered_facts": [{"key": "location", "value": "Faridabad"}],
+    }
+
+    with patch.object(engine, "is_available", return_value=True), patch.object(engine, "generate", return_value="New Delhi") as mocked_generate:
+        result, source = engine.chat("capital of India?", context=context)
+
+    assert result == "New Delhi"
+    assert source == "ollama"
+    prompt = mocked_generate.call_args.args[0]
+    assert "Tasks:" not in prompt
+    assert "Events:" not in prompt
+    assert "Notes:" not in prompt
+    assert "Recent chat memory:" not in prompt
+    assert "Remembered user facts:" not in prompt
+
+
+def test_chat_prompt_keeps_history_only_for_history_queries() -> None:
+    engine = LocalLLMEngine(model_name="phi3", ollama_url="http://localhost:11434")
+    context = {
+        "recent_messages": [{"role": "user", "content": "remember that my favorite stack is python"}],
+        "remembered_facts": [{"key": "name", "value": "Namit"}],
+    }
+
+    with patch.object(engine, "is_available", return_value=True), patch.object(engine, "generate", return_value="Recent chat memory") as mocked_generate:
+        engine.chat("what do you remember from earlier", context=context)
+
+    prompt = mocked_generate.call_args.args[0]
+    assert "Recent chat memory:" in prompt
+    assert "Remembered user facts:" not in prompt
+
+
+def test_chat_prompt_keeps_project_context_for_project_queries() -> None:
+    engine = LocalLLMEngine(model_name="phi3", ollama_url="http://localhost:11434")
+    context = {
+        "project": {"project_id": "HVAC_2025", "name": "Smart HVAC", "status": "active"},
+        "semantic_notes": ["- HVAC note"],
+    }
+
+    with patch.object(engine, "is_available", return_value=True), patch.object(engine, "generate", return_value="Project info") as mocked_generate:
+        engine.chat("tell me about the smart hvac project", context=context)
+
+    prompt = mocked_generate.call_args.args[0]
+    assert "Project:" in prompt
+    assert "Semantic notes:" in prompt

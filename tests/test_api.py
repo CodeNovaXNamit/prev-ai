@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from sqlalchemy import text
 from unittest.mock import patch
 
 
@@ -168,3 +169,67 @@ def test_chat_can_save_location_and_list_memories(client) -> None:
     assert memories.status_code == 200
     payload = memories.json()
     assert any(item["key"] == "location" and item["value"] == "Chandigarh" for item in payload)
+
+
+def test_profile_and_project_ground_truth_routes(client) -> None:
+    profile = client.post("/profile", json={"attribute": "cgpa", "value": "8.7"})
+    assert profile.status_code == 200
+    assert profile.json()["attribute"] == "cgpa"
+
+    project = client.post(
+        "/projects",
+        json={
+            "project_id": "HVAC_2025",
+            "name": "Smart HVAC",
+            "team_members": "Aman, Riya",
+            "status": "active",
+        },
+    )
+    assert project.status_code == 200
+    assert project.json()["project_id"] == "HVAC_2025"
+
+    profile_list = client.get("/profile")
+    assert profile_list.status_code == 200
+    assert any(item["attribute"] == "cgpa" and item["value"] == "8.7" for item in profile_list.json())
+
+    project_list = client.get("/projects")
+    assert project_list.status_code == 200
+    assert any(item["project_id"] == "HVAC_2025" for item in project_list.json())
+
+
+def test_chat_answers_profile_from_sql_ground_truth(client) -> None:
+    client.post("/profile", json={"attribute": "name", "value": "Namit"})
+
+    response = client.post("/chat", json={"message": "what is my name"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "memory"
+    assert payload["response"] == "Your name is Namit."
+
+
+def test_chat_answers_project_from_sql_ground_truth(client) -> None:
+    client.post(
+        "/projects",
+        json={
+            "project_id": "FLOOD_2025",
+            "name": "Flood Prediction",
+            "team_members": "Neha, Arjun",
+            "status": "active",
+        },
+    )
+
+    response = client.post("/chat", json={"message": "tell me about the flood prediction project"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "local-context"
+    assert "Flood Prediction [FLOOD_2025] is active." in payload["response"]
+
+
+def test_chat_does_not_store_assistant_messages_in_chat_history(client, session) -> None:
+    response = client.post("/chat", json={"message": "what is my name"})
+    assert response.status_code == 200
+
+    count = session.execute(text("SELECT COUNT(*) FROM chat_messages")).scalar_one()
+    assert count == 1

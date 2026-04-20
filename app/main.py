@@ -20,6 +20,8 @@ from app.config import (
     EventUpdate,
     HealthStatus,
     NoteCreate,
+    ProfileFact,
+    ProjectRegistryEntry,
     SummaryRequest,
     SystemStatusResponse,
     TaskBase,
@@ -27,9 +29,12 @@ from app.config import (
     get_settings,
 )
 from app.database import get_db, init_database
+from app.ground_truth_service import GroundTruthService
 from app.llm_engine import LocalLLMEngine
 from app.memory_service import UserMemoryService
+from app.router_service import IntentRouterService
 from app.scheduler import SchedulerManager
+from app.semantic_memory import SemanticMemoryService
 from app.summarizer import NotesSummarizer
 from app.system_status import SystemStatusService
 from app.task_manager import TaskManager
@@ -37,6 +42,7 @@ from app.task_manager import TaskManager
 
 settings = get_settings()
 llm_engine = LocalLLMEngine()
+intent_router = IntentRouterService()
 
 
 @asynccontextmanager
@@ -73,7 +79,7 @@ def get_scheduler_manager(session: DbSession) -> SchedulerManager:
 
 
 def get_notes_service(session: DbSession) -> NotesSummarizer:
-    return NotesSummarizer(session, llm_engine)
+    return NotesSummarizer(session, llm_engine, semantic_memory=SemanticMemoryService())
 
 
 def get_analytics_service(session: DbSession) -> AnalyticsService:
@@ -81,11 +87,15 @@ def get_analytics_service(session: DbSession) -> AnalyticsService:
 
 
 def get_chat_memory_service(session: DbSession) -> ChatMemoryService:
-    return ChatMemoryService(session)
+    return ChatMemoryService(session, semantic_memory=SemanticMemoryService())
 
 
 def get_user_memory_service(session: DbSession) -> UserMemoryService:
     return UserMemoryService(session)
+
+
+def get_ground_truth_service(session: DbSession) -> GroundTruthService:
+    return GroundTruthService(session)
 
 
 def get_system_status_service(session: DbSession) -> SystemStatusService:
@@ -131,6 +141,16 @@ def health_check() -> HealthStatus:
     )
 
 
+@app.get("/")
+def root() -> dict[str, str]:
+    """Provide a simple root response for browser hits and container checks."""
+    return {
+        "message": "PrevAI backend is running.",
+        "docs": "/docs",
+        "health": "/health",
+    }
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(
     request: ChatRequest,
@@ -139,13 +159,24 @@ def chat(
     notes: Annotated[NotesSummarizer, Depends(get_notes_service)],
     memory: Annotated[ChatMemoryService, Depends(get_chat_memory_service)],
     user_memory: Annotated[UserMemoryService, Depends(get_user_memory_service)],
+    ground_truth: Annotated[GroundTruthService, Depends(get_ground_truth_service)],
     analytics: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ChatResponse:
     """Return an assistant response."""
     memory.add_message("user", request.message)
+    profile_answer = ground_truth.answer_profile_query(request.message)
+    if profile_answer is not None:
+        analytics.track("chat", "memory_recalled", {"kind": "profile_sql"})
+        return ChatResponse(
+            response=profile_answer,
+            source="memory",
+            created_tasks=[],
+            created_events=[],
+            completed_tasks=[],
+        )
+
     recalled_answer = user_memory.answer_memory_query(request.message)
     if recalled_answer is not None:
-        memory.add_message("assistant", recalled_answer)
         analytics.track("chat", "memory_recalled", {"kind": "fact"})
         return ChatResponse(
             response=recalled_answer,
@@ -156,15 +187,27 @@ def chat(
         )
 
     captured_memories = user_memory.capture_memories_from_message(request.message)
+    ground_truth.sync_profile_memories(captured_memories)
     created_tasks = tasks.create_tasks_from_message(request.message)
     completed_tasks = tasks.complete_tasks_from_message(request.message)
     created_events = scheduler.create_events_from_message(request.message)
+    intent = intent_router.classify(request.message)
+    project = ground_truth.resolve_project(request.message)
+    semantic_notes = []
+    if intent in {"PROJECT_INFO", "NOTE"}:
+        semantic_notes = SemanticMemoryService().query_notes(
+            request.message,
+            project_id=project["project_id"] if project else None,
+        )
     context = {
         "tasks": tasks.list_tasks()[:5],
         "events": scheduler.list_events()[:5],
         "notes": notes.list_notes()[:5],
         "recent_messages": memory.list_recent_messages(limit=8),
-        "remembered_facts": user_memory.list_memories()[:5],
+        "remembered_facts": ground_truth.list_profile()[:5],
+        "semantic_notes": semantic_notes,
+        "project": project,
+        "intent": intent,
     }
     local_context_answer = llm_engine.answer_from_local_context(request.message, context)
     if captured_memories:
@@ -176,9 +219,19 @@ def chat(
     elif local_context_answer is not None:
         response = local_context_answer
         source = "local-context"
+    elif intent == "PROJECT_INFO":
+        project_answer = ground_truth.answer_project_query(request.message)
+        if project_answer is not None:
+            response = project_answer
+            if semantic_notes:
+                response += "\nRelated project notes:\n" + "\n".join(f"- {item}" for item in semantic_notes[:3])
+            source = "local-context"
+        else:
+            response, source = llm_engine.chat(request.message, context={"project": project, "semantic_notes": semantic_notes, "intent": intent})
+    elif intent == "GENERAL":
+        response, source = llm_engine.chat(request.message, context={"intent": intent})
     else:
         response, source = llm_engine.chat(request.message, context=context)
-    memory.add_message("assistant", response)
     analytics.track("chat", "message_sent", {"source": source})
     for task in created_tasks:
         analytics.track("tasks", "task_created_from_chat", {"task_id": task["id"]})
@@ -203,6 +256,45 @@ def list_memories(
 ) -> list[dict[str, str]]:
     """List saved personal facts remembered locally for the user."""
     return user_memory.list_memories()
+
+
+@app.get("/profile")
+def list_profile(
+    ground_truth: Annotated[GroundTruthService, Depends(get_ground_truth_service)],
+) -> list[dict[str, str]]:
+    """List structured profile facts."""
+    return ground_truth.list_profile()
+
+
+@app.post("/profile")
+def upsert_profile(
+    request: ProfileFact,
+    ground_truth: Annotated[GroundTruthService, Depends(get_ground_truth_service)],
+) -> dict[str, str]:
+    """Insert or update one structured profile fact."""
+    return ground_truth.upsert_profile(request.attribute, request.value)
+
+
+@app.get("/projects")
+def list_projects(
+    ground_truth: Annotated[GroundTruthService, Depends(get_ground_truth_service)],
+) -> list[dict[str, str]]:
+    """List the project registry."""
+    return ground_truth.list_projects()
+
+
+@app.post("/projects")
+def upsert_project(
+    request: ProjectRegistryEntry,
+    ground_truth: Annotated[GroundTruthService, Depends(get_ground_truth_service)],
+) -> dict[str, str]:
+    """Insert or update a project registry entry."""
+    return ground_truth.upsert_project(
+        request.project_id,
+        request.name,
+        team_members=request.team_members,
+        status=request.status,
+    )
 
 
 @app.get("/tasks")
@@ -325,10 +417,14 @@ def list_summaries(
 def create_note(
     request: NoteCreate,
     notes: Annotated[NotesSummarizer, Depends(get_notes_service)],
+    ground_truth: Annotated[GroundTruthService, Depends(get_ground_truth_service)],
     analytics: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> dict[str, Any]:
     """Create a note without summary generation."""
-    created = notes.create_note(**request.model_dump())
+    project = ground_truth.resolve_project(f"{request.title}\n{request.note_text}")
+    payload = request.model_dump()
+    payload["project_id"] = payload.get("project_id") or (project["project_id"] if project else None)
+    created = notes.create_note(**payload)
     analytics.track("notes", "note_created", {"note_id": created["id"]})
     return created
 
@@ -351,10 +447,16 @@ def delete_note(
 def summarize_note(
     request: SummaryRequest,
     notes: Annotated[NotesSummarizer, Depends(get_notes_service)],
+    ground_truth: Annotated[GroundTruthService, Depends(get_ground_truth_service)],
     analytics: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> dict[str, Any]:
     """Summarize and store a note."""
-    record = notes.summarize(request.title, request.note_text)
+    project = ground_truth.resolve_project(f"{request.title}\n{request.note_text}")
+    record = notes.summarize(
+        request.title,
+        request.note_text,
+        project_id=request.project_id or (project["project_id"] if project else None),
+    )
     analytics.track("summarizer", "summary_generated", {"note_id": record["id"]})
     return record
 

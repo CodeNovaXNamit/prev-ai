@@ -43,6 +43,8 @@ class AppSettings:
     request_timeout: int
     allow_external_network: bool
     cors_origins: list[str]
+    embedding_model_name: str
+    chroma_path: str
 
 
 class HealthStatus(BaseModel):
@@ -116,6 +118,7 @@ class NoteCreate(BaseModel):
 
     title: str = Field(..., min_length=1)
     note_text: str = Field(..., min_length=1)
+    project_id: str | None = None
 
 
 class SummaryRequest(BaseModel):
@@ -123,6 +126,23 @@ class SummaryRequest(BaseModel):
 
     title: str = ""
     note_text: str = Field(..., min_length=1)
+    project_id: str | None = None
+
+
+class ProfileFact(BaseModel):
+    """Structured immutable user fact."""
+
+    attribute: str = Field(..., min_length=1)
+    value: str = Field(..., min_length=1)
+
+
+class ProjectRegistryEntry(BaseModel):
+    """Structured project registry row."""
+
+    project_id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    team_members: str = ""
+    status: str = "active"
 
 
 class AnalyticsResponse(BaseModel):
@@ -174,4 +194,9 @@ def get_settings() -> AppSettings:
         cors_origins=_parse_cors_origins(
             os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
         ),
+        embedding_model_name=os.getenv(
+            "EMBEDDING_MODEL_NAME",
+            "sentence-transformers/all-MiniLM-L6-v2",
+        ),
+        chroma_path=os.getenv("CHROMA_PATH", str((BASE_DIR / "data" / "chroma").resolve())),
     )

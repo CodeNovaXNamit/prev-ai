@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.encryption import EncryptionManager
 from app.models import ChatMessageRecord
+from app.semantic_memory import SemanticMemoryService
 from app.utils import generate_id
 
 
@@ -18,9 +19,11 @@ class ChatMemoryService:
         self,
         session: Session,
         encryption_manager: EncryptionManager | None = None,
+        semantic_memory: SemanticMemoryService | None = None,
     ) -> None:
         self.session = session
         self.encryption_manager = encryption_manager or EncryptionManager()
+        self.semantic_memory = semantic_memory or SemanticMemoryService()
 
     def add_message(self, role: str, content: str) -> dict[str, Any]:
         """Store a chat message."""
@@ -32,6 +35,8 @@ class ChatMemoryService:
         self.session.add(message)
         self.session.commit()
         self.session.refresh(message)
+        if role == "user":
+            self.semantic_memory.index_user_prompt(message.id, content)
         return self._serialize(message)
 
     def list_recent_messages(self, limit: int = 8) -> list[dict[str, Any]]:

@@ -62,7 +62,7 @@ export function HomeChat() {
           ),
         ].join("\n\n");
 
-        await apiRequest<{ id: string; title: string; summary: string | null }>("/summarize", {
+        const summaryRecord = await apiRequest<{ id: string; title: string; summary: string | null }>("/summarize", {
           method: "POST",
           body: JSON.stringify({
             title: summaryTitle,
@@ -70,6 +70,21 @@ export function HomeChat() {
           }),
         });
         setSavedSummaryTitle(summaryTitle);
+        setMessages((current) => [
+          ...current,
+          {
+            id: `${Date.now()}-reply`,
+            role: "assistant",
+            text: summaryRecord.summary || "Summary saved.",
+            source: "summary",
+          },
+        ]);
+        setFiles([]);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        setLoading(false);
+        return;
       }
 
       const payload = await apiRequest<ChatResponse>("/chat", {

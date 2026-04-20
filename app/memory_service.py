@@ -23,6 +23,8 @@ class UserMemoryService:
         ("location", r"\bmy city is\s+(?P<value>[a-z][a-z\s,.'-]{0,60})\b"),
         ("occupation", r"\bi work as\s+(?P<value>[a-z][a-z\s'-]{0,60})\b"),
         ("occupation", r"\bi am a[n]?\s+(?P<value>[a-z][a-z\s'-]{0,60})\b"),
+        ("cgpa", r"\bmy cgpa is\s+(?P<value>[0-9]+(?:\.[0-9]+)?)\b"),
+        ("language_levels", r"\bmy language levels? (?:is|are)\s+(?P<value>[a-z0-9\s,.'-]{0,120})\b"),
     )
     FAVORITE_PATTERN = re.compile(
         r"\bmy favorite\s+(?P<key>[a-z][a-z\s'-]{0,30})\s+is\s+(?P<value>[a-z0-9][a-z0-9\s,.'-]{0,60})\b",
@@ -39,6 +41,12 @@ class UserMemoryService:
             "occupation",
             ("what do i do", "what is my job", "what do i work as", "do you remember my job"),
             "You told me you work as {value}.",
+        ),
+        ("cgpa", ("what is my cgpa", "show my cgpa"), "Your CGPA is {value}."),
+        (
+            "language_levels",
+            ("what are my language levels", "show my language levels"),
+            "Your language levels are {value}.",
         ),
     )
 
@@ -181,5 +189,7 @@ class UserMemoryService:
             "name": "name",
             "location": "location",
             "occupation": "job",
+            "cgpa": "cgpa",
+            "language_levels": "language levels",
         }
         return f"I do not have your {labels.get(key, key)} saved yet."

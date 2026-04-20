@@ -27,6 +27,7 @@ export type Note = {
   id: string;
   title: string;
   note_text: string;
+  project_id?: string | null;
   summary: string | null;
   created_at: string;
   updated_at: string;

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.encryption import EncryptionManager
 from app.llm_engine import LocalLLMEngine
 from app.models import NoteRecord
+from app.semantic_memory import SemanticMemoryService
 from app.utils import generate_id
 
 
@@ -23,25 +24,29 @@ class NotesSummarizer:
         session: Session,
         llm_engine: LocalLLMEngine | None = None,
         encryption_manager: EncryptionManager | None = None,
+        semantic_memory: SemanticMemoryService | None = None,
     ) -> None:
         self.session = session
         self.llm_engine = llm_engine or LocalLLMEngine()
         self.encryption_manager = encryption_manager or EncryptionManager()
+        self.semantic_memory = semantic_memory or SemanticMemoryService()
 
-    def create_note(self, title: str, note_text: str) -> dict[str, Any]:
+    def create_note(self, title: str, note_text: str, project_id: str | None = None) -> dict[str, Any]:
         """Store a note without generating a summary."""
         note = NoteRecord(
             id=generate_id(),
             title_encrypted=self.encryption_manager.encrypt(title.strip()),
             note_text_encrypted=self.encryption_manager.encrypt(note_text.strip()),
             summary_encrypted=None,
+            project_id=project_id,
         )
         self.session.add(note)
         self.session.commit()
         self.session.refresh(note)
+        self.semantic_memory.index_note(note.id, note_text, None, project_id=project_id)
         return self._serialize(note)
 
-    def summarize(self, title: str, note_text: str) -> dict[str, Any]:
+    def summarize(self, title: str, note_text: str, project_id: str | None = None) -> dict[str, Any]:
         """Summarize note text using Ollama or a deterministic local fallback."""
         summary = self._generate_summary(note_text)
         note = NoteRecord(
@@ -49,10 +54,12 @@ class NotesSummarizer:
             title_encrypted=self.encryption_manager.encrypt((title.strip() or "Untitled note")),
             note_text_encrypted=self.encryption_manager.encrypt(note_text.strip()),
             summary_encrypted=self.encryption_manager.encrypt(summary),
+            project_id=project_id,
         )
         self.session.add(note)
         self.session.commit()
         self.session.refresh(note)
+        self.semantic_memory.index_note(note.id, note_text, summary, project_id=project_id)
         return self._serialize(note)
 
     def list_notes(self) -> list[dict[str, Any]]:
@@ -125,6 +132,7 @@ class NotesSummarizer:
             "id": note.id,
             "title": self.encryption_manager.decrypt(note.title_encrypted),
             "note_text": self.encryption_manager.decrypt(note.note_text_encrypted),
+            "project_id": note.project_id,
             "summary": (
                 self.encryption_manager.decrypt(note.summary_encrypted)
                 if note.summary_encrypted

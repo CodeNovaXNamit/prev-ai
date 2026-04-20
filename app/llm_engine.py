@@ -65,10 +65,13 @@ class LocalLLMEngine:
 
         prompt = (
             "You are a privacy-first personal AI assistant running entirely on-device. "
-            "Provide helpful, concise responses while keeping all data local.\n\n"
+            "Answer only the user's current request. "
+            "Use only the local context explicitly provided below when it is relevant. "
+            "Do not mention or reuse unrelated prior conversation, notes, user facts, or troubleshooting details.\n\n"
         )
-        if context:
-            prompt += self._build_context_block(context)
+        filtered_context = self._select_context_for_message(message, context or {})
+        if filtered_context:
+            prompt += self._build_context_block(filtered_context)
         prompt += f"User message:\n{message}\n"
         return self.generate(prompt), "ollama"
 
@@ -123,11 +126,64 @@ class LocalLLMEngine:
             lines.append(f"Events: {context['events']}")
         if context.get("notes"):
             lines.append(f"Notes: {context['notes']}")
+        if context.get("semantic_notes"):
+            lines.append(f"Semantic notes: {context['semantic_notes']}")
+        if context.get("project"):
+            lines.append(f"Project: {context['project']}")
         if context.get("recent_messages"):
             lines.append(f"Recent chat memory: {context['recent_messages']}")
         if context.get("remembered_facts"):
             lines.append(f"Remembered user facts: {context['remembered_facts']}")
         return "\n".join(lines) + "\n\n"
+
+    def _select_context_for_message(self, message: str, context: dict[str, Any]) -> dict[str, Any]:
+        """Keep only the context that is directly relevant to the current request."""
+        message_lower = message.lower()
+        selected: dict[str, Any] = {}
+
+        if any(word in message_lower for word in ["schedule", "event", "calendar", "meeting", "appointment"]):
+            if context.get("events"):
+                selected["events"] = context["events"]
+
+        if any(word in message_lower for word in ["task", "todo", "to-do"]):
+            if context.get("tasks"):
+                selected["tasks"] = context["tasks"]
+
+        if any(word in message_lower for word in ["note", "summary", "summarize", "document", "file", "text"]):
+            if context.get("notes"):
+                selected["notes"] = context["notes"]
+            if context.get("semantic_notes"):
+                selected["semantic_notes"] = context["semantic_notes"]
+
+        if any(word in message_lower for word in ["remember", "previous", "earlier", "history"]):
+            if context.get("recent_messages"):
+                selected["recent_messages"] = context["recent_messages"]
+
+        if any(word in message_lower for word in ["project", "hvac", "flood"]):
+            if context.get("project"):
+                selected["project"] = context["project"]
+            if context.get("semantic_notes"):
+                selected["semantic_notes"] = context["semantic_notes"]
+
+        if any(
+            phrase in message_lower
+            for phrase in [
+                "what do you know about me",
+                "show my profile",
+                "what do you remember about me",
+                "favorite",
+                "my name",
+                "where do i live",
+                "where am i from",
+                "what is my city",
+                "what do i do",
+                "what is my job",
+            ]
+        ):
+            if context.get("remembered_facts"):
+                selected["remembered_facts"] = context["remembered_facts"]
+
+        return selected
 
     def _format_schedule(self, events: list[dict[str, Any]]) -> str:
         """Format saved events into a readable offline answer."""

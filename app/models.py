@@ -61,6 +61,7 @@ class NoteRecord(TimestampMixin, Base):
     title_encrypted: Mapped[str] = mapped_column(Text())
     note_text_encrypted: Mapped[str] = mapped_column(Text())
     summary_encrypted: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    project_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
 
 class ChatMessageRecord(TimestampMixin, Base):
@@ -81,6 +82,26 @@ class UserMemoryRecord(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     key: Mapped[str] = mapped_column(String(64), index=True)
     value_encrypted: Mapped[str] = mapped_column(Text())
+
+
+class UserProfileRecord(TimestampMixin, Base):
+    """Structured immutable user profile fact."""
+
+    __tablename__ = "user_profile"
+
+    attribute: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value_encrypted: Mapped[str] = mapped_column(Text())
+
+
+class ProjectRegistryRecord(TimestampMixin, Base):
+    """Structured project registry."""
+
+    __tablename__ = "project_registry"
+
+    project_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), index=True)
+    team_members_encrypted: Mapped[str] = mapped_column(Text(), default="")
+    status: Mapped[str] = mapped_column(String(32), default="active")
 
 
 class BehaviorEvent(TimestampMixin, Base):

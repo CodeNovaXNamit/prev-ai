@@ -1,0 +1,150 @@
+Privacy AI Assistant - Teammate Setup Guide
+
+Recommended approach: use Docker unless you specifically want to develop the backend/frontend locally.
+
+==================================================
+1. Prerequisites
+==================================================
+
+Install these first:
+
+- Git
+- Docker Desktop
+- Ollama
+
+If you want to run without Docker, also install:
+
+- Python 3.11+
+- Node.js 20+
+- MySQL 8+
+
+Make sure these ports are free:
+
+- 3000 for frontend
+- 8000 for backend
+- 3306 for MySQL
+- 11434 for Ollama
+
+==================================================
+2. Clone the project
+==================================================
+
+Open PowerShell and run:
+
+git clone <repo-url>
+cd prev-ai
+
+==================================================
+3. Create the environment file
+==================================================
+
+Copy the sample env file:
+
+copy .env.example .env
+
+Then edit .env and set a real ENCRYPTION_KEY.
+
+To generate one:
+
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+Paste the output into:
+
+ENCRYPTION_KEY=your_generated_key_here
+
+Important:
+
+- Do not commit .env
+- Each teammate should keep their own local .env
+
+==================================================
+4. Start Ollama and pull the model
+==================================================
+
+Run:
+
+ollama serve
+
+In another terminal:
+
+ollama pull phi3
+ollama list
+
+You should see phi3 installed.
+
+==================================================
+5. Run with Docker (recommended)
+==================================================
+
+From the repo root:
+
+docker compose up --build
+
+Then open:
+
+- Frontend: http://localhost:3000
+- Backend docs: http://localhost:8000/docs
+- Health: http://localhost:8000/health
+
+==================================================
+6. Run without Docker (optional)
+==================================================
+
+Only do this if you want local development without containers.
+
+Requirements:
+
+- MySQL must be installed and running locally
+- The DB/user/password should match the values in .env
+
+Run:
+
+.\scripts\setup.ps1
+ollama serve
+ollama pull phi3
+.\scripts\run.ps1
+
+==================================================
+7. Things to verify before first run
+==================================================
+
+- .env exists
+- ENCRYPTION_KEY is set
+- Ollama is running
+- phi3 is installed in Ollama
+- Docker Desktop is running if using Docker
+- MySQL is running if using local non-Docker mode
+
+==================================================
+8. Recommended workflow
+==================================================
+
+Use Docker if:
+
+- you just want the project running
+- you do not want to configure MySQL manually
+
+Use local run if:
+
+- you are actively editing frontend/backend code outside Docker
+
+==================================================
+9. Common problems
+==================================================
+
+If localhost:3000 shows old UI:
+
+- stop old dev servers
+- run docker compose down
+- run docker compose up --build
+
+If Ollama-related features do not work:
+
+- check ollama serve is running
+- check ollama list contains phi3
+
+If backend cannot connect to DB in local mode:
+
+- make sure MySQL is running
+- make sure DATABASE_URL in .env is correct
+

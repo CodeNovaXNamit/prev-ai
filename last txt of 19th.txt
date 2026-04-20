@@ -1,0 +1,75 @@
+That error means `3306` is already being used on your laptop by another process, most likely a local MySQL service.
+
+So Docker cannot bind:
+
+`0.0.0.0:3306 -> container:3306`
+
+That is why it says:
+
+`Only one usage of each socket address ... is normally permitted`
+
+Why this is happening
+- your Docker MySQL wants host port `3306`
+- your machine already has something listening on `3306`
+- so Docker cannot expose the container there
+
+Best fix
+Use a different host port for Docker MySQL, for example `3307`.
+
+In `docker-compose.yml`, under `mysql`, use:
+
+```yaml
+    ports:
+      - "3307:3306"
+```
+
+Then in `.env`, change:
+
+```env
+DATABASE_URL=mysql+pymysql://prevai:prevai@localhost:3307/prevai
+```
+
+Then run:
+
+```powershell
+docker compose down
+docker compose up -d mysql
+alembic upgrade head
+```
+
+Why this works
+- container still runs MySQL on `3306`
+- your laptop connects to it through `localhost:3307`
+- no conflict with the existing service already using `3306`
+
+About option 1
+You do not need a new terminal in `C:`. Just stay in your current terminal in:
+
+`D:\17. Hackathon\AI Nexus\prev-ai`
+
+and run:
+
+```powershell
+docker compose run --rm backend alembic upgrade head
+```
+
+That command works from the current folder. It does not depend on the project being on `C:`.
+
+If you want to confirm what is using 3306
+Run:
+
+```powershell
+netstat -ano | findstr :3306
+```
+
+Then check the PID:
+
+```powershell
+Get-Process -Id <PID>
+```
+
+So your two working choices are:
+1. use Docker MySQL on `3307`
+2. use your existing local MySQL on `3306` and create/fix the `prevai` user there
+
+If you want, I can patch the exact `docker-compose.yml` and `.env` values for the `3307` setup.

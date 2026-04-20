@@ -3,11 +3,14 @@
 import { useEffect, useState } from "react";
 
 import { Task, apiRequest } from "@/lib/api";
+import { formatRelativeDate } from "@/components/app/format";
+import { WorkspaceShell } from "@/components/app/workspace-shell";
 
 export function TasksView() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const loadTasks = () => {
     apiRequest<Task[]>("/tasks")
@@ -22,6 +25,7 @@ export function TasksView() {
   const setTaskCompleted = (task: Task, completed: boolean) => {
     setBusyTaskId(task.id);
     setError(null);
+    setSuccess(null);
     apiRequest<Task>(`/tasks/${task.id}`, {
       method: "PATCH",
       body: JSON.stringify({ completed }),
@@ -30,9 +34,14 @@ export function TasksView() {
         setTasks((current) =>
           current
             .map((item) => (item.id === task.id ? updated : item))
-            .sort((a, b) => Number(a.completed) - Number(b.completed) || new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()),
+            .sort(
+              (a, b) =>
+                Number(a.completed) - Number(b.completed) ||
+                new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+            ),
         ),
       )
+      .then(() => setSuccess(completed ? `Completed "${task.title}".` : `Reopened "${task.title}".`))
       .catch((requestError) => setError((requestError as Error).message))
       .finally(() => setBusyTaskId(null));
   };
@@ -40,8 +49,13 @@ export function TasksView() {
   const deleteTask = (taskId: string) => {
     setBusyTaskId(taskId);
     setError(null);
+    setSuccess(null);
     apiRequest<{ deleted: boolean }>(`/tasks/${taskId}`, { method: "DELETE" })
-      .then(() => setTasks((current) => current.filter((item) => item.id !== taskId)))
+      .then(() => {
+        const removed = tasks.find((item) => item.id === taskId);
+        setTasks((current) => current.filter((item) => item.id !== taskId));
+        setSuccess(removed ? `Deleted "${removed.title}".` : "Task deleted.");
+      })
       .catch((requestError) => setError((requestError as Error).message))
       .finally(() => setBusyTaskId(null));
   };
@@ -50,95 +64,105 @@ export function TasksView() {
   const doneTasks = tasks.filter((task) => task.completed);
 
   return (
-    <section className="stack-lg">
-      <div className="panel">
-        <div className="row-between">
+    <WorkspaceShell
+      title="Tasks"
+      description="Keep your work in one simple checklist. Tick a task when it is done, or let PrivAI create it from natural language in chat."
+      actions={
+        <button type="button" className="button button-secondary" onClick={loadTasks}>
+          Refresh
+        </button>
+      }
+    >
+      {success ? (
+        <div className="feedback-banner micro-pulse">
           <div>
-            <h1 className="page-title">Tasks</h1>
-            <p className="page-copy">
-              Keep your work in one simple checklist. Tick a task when it is done, or say it in chat.
-            </p>
+            <strong className="success-text">Task updated</strong>
+            <span>{success}</span>
           </div>
-          <button type="button" className="button-secondary" onClick={loadTasks}>
-            Refresh
-          </button>
         </div>
-      </div>
-      {error && <div className="error-text">{error}</div>}
-      {tasks.length === 0 && (
-        <div className="panel muted-text">
-          No tasks yet. Add one from chat, then come back here to tick it off.
+      ) : null}
+      {error ? (
+        <div className="feedback-banner feedback-banner-error">
+          <div>
+            <strong className="error-text">Task action failed</strong>
+            <span>{error}</span>
+          </div>
         </div>
-      )}
-      {tasks.length > 0 && (
-        <div className="grid-two task-groups">
-          <div className="panel stack-md">
-            <div className="task-group-header">
-              <div className="item-title">To do</div>
-              <div className="task-count">{pendingTasks.length}</div>
+      ) : null}
+      <section className="workspace-grid workspace-grid-two reveal stagger-1">
+        <div className="app-card">
+          <div className="list-card-header">
+            <div>
+              <span className="eyebrow">To do</span>
+              <h2>Pending tasks</h2>
             </div>
-            {pendingTasks.length === 0 && <div className="muted-text">Nothing pending right now.</div>}
+            <span className="count-badge">{pendingTasks.length}</span>
+          </div>
+
+          <div className="task-list">
+            {pendingTasks.length === 0 ? (
+              <div className="empty-state">No pending tasks. Create one from chat or the event workflow.</div>
+            ) : null}
             {pendingTasks.map((task) => (
-              <div key={task.id} className="task-card">
-                <label className="task-main">
+              <article key={task.id} className={`task-card ${busyTaskId === task.id ? "busy-state" : ""}`}>
+                <label className="task-row">
                   <input
                     type="checkbox"
-                    className="task-check"
                     checked={task.completed}
                     disabled={busyTaskId === task.id}
                     onChange={(event) => setTaskCompleted(task, event.target.checked)}
                   />
-                  <div className="task-copy">
-                    <div className="task-title">{task.title}</div>
-                    <div className="task-note">{task.description || "Saved from chat"}</div>
+                  <div>
+                    <strong>{task.title}</strong>
+                    <span className="task-note">{task.description || "Saved from chat"}</span>
                   </div>
                 </label>
-                <div className="task-actions">
-                  <div className="task-time">
-                    {task.due_date ? `Due ${task.due_date}` : `Updated ${new Date(task.updated_at).toLocaleDateString()}`}
-                  </div>
+                <div className="row-between">
+                  <p>{formatRelativeDate(task.due_date)}</p>
                   <button
                     type="button"
-                    className="button-secondary"
+                    className="button button-secondary"
                     disabled={busyTaskId === task.id}
                     onClick={() => deleteTask(task.id)}
                   >
                     Delete
                   </button>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
+        </div>
 
-          <div className="panel stack-md">
-            <div className="task-group-header">
-              <div className="item-title">Completed</div>
-              <div className="task-count">{doneTasks.length}</div>
+        <div className="app-card">
+          <div className="list-card-header">
+            <div>
+              <span className="eyebrow">Completed</span>
+              <h2>Done</h2>
             </div>
-            {doneTasks.length === 0 && <div className="muted-text">Completed tasks will appear here.</div>}
+            <span className="count-badge">{doneTasks.length}</span>
+          </div>
+          <div className="task-list">
+            {doneTasks.length === 0 ? <div className="empty-state">Completed tasks will appear here.</div> : null}
             {doneTasks.map((task) => (
-              <div key={task.id} className="task-card task-card-done">
-                <label className="task-main">
+              <article key={task.id} className={`task-card task-card-complete ${busyTaskId === task.id ? "busy-state" : ""}`}>
+                <label className="task-row">
                   <input
                     type="checkbox"
-                    className="task-check"
                     checked={task.completed}
                     disabled={busyTaskId === task.id}
                     onChange={(event) => setTaskCompleted(task, event.target.checked)}
                   />
-                  <div className="task-copy">
-                    <div className="task-title task-title-done">{task.title}</div>
-                    <div className="task-note">{task.description || "Saved from chat"}</div>
+                  <div>
+                    <strong>{task.title}</strong>
+                    <span className="task-note">{task.description || "Saved from chat"}</span>
                   </div>
                 </label>
-                <div className="task-time">
-                  Finished. Updated {new Date(task.updated_at).toLocaleDateString()}
-                </div>
-              </div>
+                <p>Updated {formatRelativeDate(task.updated_at)}</p>
+              </article>
             ))}
           </div>
         </div>
-      )}
-    </section>
+      </section>
+    </WorkspaceShell>
   );
 }

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Space_Grotesk } from "next/font/google";
 
 import "./globals.css";
-import { NavShell } from "@/components/app/nav-shell";
+import { ThemeProvider } from "@/components/theme/theme-provider";
 
 const heading = Space_Grotesk({
   variable: "--font-heading",
@@ -19,7 +19,7 @@ const body = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   title: "PrivAI",
   description:
-    "Simple React frontend for local chat, tasks, summaries, and system status.",
+    "Private local AI assistant with live chat, tasks, notes, events, analytics, and system status.",
 };
 
 export default function RootLayout({
@@ -28,9 +28,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={`${heading.variable} ${body.variable}`}>
-        <NavShell>{children}</NavShell>
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

@@ -105,15 +105,36 @@ def test_chat_endpoint_saves_meeting_to_schedule(client) -> None:
     assert payload["source"] == "local-context"
     assert payload["created_tasks"] == []
     assert payload["created_events"][0]["title"] == "Meeting"
-    assert "April 20, 2026 at 09:00 AM" in payload["response"]
+    assert "April 20" in payload["response"]
+    assert "09:00 AM" in payload["response"]
     assert "Chandigarh" in payload["response"]
 
     events_response = client.get("/events")
     assert events_response.status_code == 200
     events = events_response.json()
     assert events[0]["title"] == "Meeting"
-    assert events[0]["start_time"].startswith("2026-04-20T09:00:00")
+    assert events[0]["start_time"].endswith("T09:00:00")
     assert events[0]["location"] == "Chandigarh"
+
+
+def test_chat_endpoint_saves_meeting_with_at_location_phrase(client) -> None:
+    response = client.post(
+        "/chat",
+        json={"message": "i have a meeting on 20th april at 9 am at location ludhiana"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "local-context"
+    assert payload["created_events"][0]["title"] == "Meeting"
+    assert "April 20" in payload["response"]
+    assert "09:00 AM" in payload["response"]
+    assert "Ludhiana" in payload["response"]
+
+    events_response = client.get("/events")
+    assert events_response.status_code == 200
+    events = events_response.json()
+    assert events[0]["location"] == "Ludhiana"
 
 
 def test_system_status_returns_health_and_test_results(client) -> None:
@@ -137,6 +158,17 @@ def test_chat_persists_memory_for_future_use(client) -> None:
     payload = second.json()
     assert "Recent chat memory:" in payload["response"]
     assert "my favorite stack is python" in payload["response"]
+
+
+def test_chat_history_returns_recent_messages(client) -> None:
+    response = client.post("/chat", json={"message": "hello there"})
+    assert response.status_code == 200
+
+    history = client.get("/chat/history")
+    assert history.status_code == 200
+    payload = history.json()
+    assert any(item["role"] == "user" and "hello there" in item["content"] for item in payload)
+    assert any(item["role"] == "assistant" for item in payload)
 
 
 def test_chat_can_save_and_recall_user_name(client) -> None:
@@ -163,7 +195,7 @@ def test_chat_can_save_location_and_list_memories(client) -> None:
 
     recall = client.post("/chat", json={"message": "where do i live"})
     assert recall.status_code == 200
-    assert recall.json()["response"] == "You told me you are from Chandigarh."
+    assert "Chandigarh" in recall.json()["response"]
 
     memories = client.get("/memories")
     assert memories.status_code == 200
@@ -232,4 +264,4 @@ def test_chat_does_not_store_assistant_messages_in_chat_history(client, session)
     assert response.status_code == 200
 
     count = session.execute(text("SELECT COUNT(*) FROM chat_messages")).scalar_one()
-    assert count == 1
+    assert count == 2

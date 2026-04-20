@@ -49,6 +49,14 @@ export type ChatResponse = {
   completed_tasks: Array<{ id: string; title: string }>;
 };
 
+export type ChatHistoryMessage = {
+  id: string;
+  role: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type UserMemory = {
   id: string;
   key: string;

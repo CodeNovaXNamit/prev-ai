@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -18,6 +19,16 @@ class NotesSummarizer:
     """Summarize notes locally and persist both note and summary."""
 
     TABLE_NAME = "notes"
+    SUSPICIOUS_TERMS = (
+        ".pytest_tmp",
+        "lsof",
+        "kill command",
+        "rm -rf",
+        "git pull",
+        "chown",
+        "chmod",
+        "terminate the process",
+    )
 
     def __init__(
         self,
@@ -79,14 +90,34 @@ class NotesSummarizer:
     def _generate_summary(self, note_text: str) -> str:
         """Generate a concise summary locally."""
         prompt = (
-            "Summarize the following note in 3 bullet points. "
-            "Focus on actions, key ideas, and deadlines.\n\n"
+            "Summarize the following note in exactly 3 short bullet points. "
+            "Use only information present in the note. "
+            "Do not include shell commands, troubleshooting steps, unrelated prior conversation, or invented details. "
+            "Keep the output readable for a student or teammate.\n\n"
             f"{note_text}"
         )
-        candidate = self.llm_engine.generate(prompt)
-        if "Local summary fallback" in candidate or "Ollama is not running" in candidate:
+        candidate = self.llm_engine.generate(
+            prompt,
+            system_prompt=(
+                "You write compact note summaries. "
+                "Return only 3 bullet points. "
+                "Never mention prior chat context, commands, filesystem operations, Git, or debugging instructions "
+                "unless they appear in the note itself."
+            ),
+            options={
+                "temperature": 0.0,
+                "top_p": 0.75,
+                "num_predict": 120,
+                "repeat_penalty": 1.15,
+            },
+        )
+        if (
+            "Local summary fallback" in candidate
+            or "Ollama is not running" in candidate
+            or self._looks_corrupted_summary(note_text, candidate)
+        ):
             return self._extractive_summary(note_text)
-        return candidate
+        return self._normalize_summary(candidate)
 
     def _extractive_summary(self, note_text: str) -> str:
         """Create a simple extractive summary without a model."""
@@ -124,7 +155,61 @@ class NotesSummarizer:
             reverse=True,
         )
         selected = ranked[: min(3, len(ranked))]
-        return "\n".join(f"- {sentence.strip()}." for sentence in selected)
+        return self._normalize_summary("\n".join(f"- {sentence.strip()}." for sentence in selected))
+
+    def _normalize_summary(self, candidate: str) -> str:
+        """Normalize model output into at most three readable bullet points."""
+        lines = [
+            line.strip(" -*\t")
+            for line in candidate.replace("\r", "\n").split("\n")
+            if line.strip()
+        ]
+        if not lines:
+            return "No readable summary could be generated."
+
+        bullets: list[str] = []
+        for line in lines:
+            if len(line) < 3:
+                continue
+            cleaned = re.sub(r"\s+", " ", line).strip(" .")
+            if cleaned:
+                bullets.append(cleaned)
+            if len(bullets) == 3:
+                break
+
+        if not bullets:
+            return "No readable summary could be generated."
+
+        return "\n".join(f"- {bullet}." for bullet in bullets)
+
+    def _looks_corrupted_summary(self, note_text: str, candidate: str) -> bool:
+        """Reject outputs that look unrelated, tool-like, or excessively noisy."""
+        lowered_note = note_text.lower()
+        lowered_candidate = candidate.lower()
+
+        if len(candidate) > 900 or "```" in candidate:
+            return True
+
+        if any(term in lowered_candidate and term not in lowered_note for term in self.SUSPICIOUS_TERMS):
+            return True
+
+        note_tokens = {
+            token
+            for token in re.findall(r"[a-z0-9]{4,}", lowered_note)
+            if token not in {"this", "that", "with", "from", "have", "will", "your"}
+        }
+        candidate_tokens = {
+            token
+            for token in re.findall(r"[a-z0-9]{4,}", lowered_candidate)
+            if token not in {"this", "that", "with", "from", "have", "will", "your"}
+        }
+
+        if candidate_tokens and note_tokens:
+            overlap = len(candidate_tokens & note_tokens) / max(1, len(candidate_tokens))
+            if overlap < 0.18:
+                return True
+
+        return False
 
     def _serialize(self, note: NoteRecord) -> dict[str, Any]:
         """Convert an ORM row into an API payload."""

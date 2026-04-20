@@ -199,11 +199,15 @@ class SchedulerManager:
 
     def _extract_location(self, message: str) -> str:
         """Extract a simple trailing location clause."""
-        match = re.search(
+        patterns = (
+            r"\bat\s+location\s+(?P<location>[a-z][a-z\s.'-]{1,80})(?=$|[.,!?])",
+            r"\blocation\s+(?P<location>[a-z][a-z\s.'-]{1,80})(?=$|[.,!?])",
             r"\bin\s+(?P<location>[a-z][a-z\s.'-]{1,80})(?=$|[.,!?])",
-            message,
-            flags=re.IGNORECASE,
+            r"\bat\s+(?P<location>[a-z][a-z\s.'-]{1,80})(?=$|[.,!?])",
         )
-        if not match:
-            return ""
-        return " ".join(match.group("location").strip(" .").split()).title()
+        for pattern in patterns:
+            match = re.search(pattern, message, flags=re.IGNORECASE)
+            if not match:
+                continue
+            return " ".join(match.group("location").strip(" .").split()).title()
+        return ""

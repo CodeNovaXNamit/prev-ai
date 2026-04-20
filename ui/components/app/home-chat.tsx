@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { ChatResponse, apiRequest } from "@/lib/api";
 import { WorkspaceShell } from "@/components/app/workspace-shell";
+import { ChatResponse, apiRequest } from "@/lib/api";
 
 type Message = {
   id: string;
@@ -12,22 +12,46 @@ type Message = {
   meta: string;
 };
 
+const SESSION_STORAGE_KEY = "privai-chat-messages";
+
+const welcomeMessage: Message = {
+  id: "welcome",
+  role: "assistant",
+  text: "Ask me something. I can save tasks, summarize notes, manage events, and keep the workflow fully local.",
+  meta: "Local model ready - Phi-3 via Ollama",
+};
+
 export function HomeChat() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      text: "Ask me something. I can save tasks, summarize notes, manage events, and keep the workflow fully local.",
-      meta: "Local model ready · Phi-3 via Ollama",
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([welcomeMessage]);
   const [value, setValue] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<string[]>([]);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const stored = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (!stored) {
+      setMessages([welcomeMessage]);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(stored) as Message[];
+      setMessages(parsed.length > 0 ? parsed : [welcomeMessage]);
+    } catch {
+      window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+      setMessages([welcomeMessage]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(messages));
+    }
+  }, [messages]);
 
   const sendMessage = async () => {
     const trimmed = value.trim();
@@ -74,7 +98,7 @@ export function HomeChat() {
             id: `${Date.now()}-assistant`,
             role: "assistant",
             text: summaryRecord.summary || "Summary saved locally.",
-            meta: `Saved in notes · ${summaryRecord.title}`,
+            meta: `Saved in notes - ${summaryRecord.title}`,
           },
         ]);
         setAlerts([`Saved summary: ${summaryRecord.title}`]);
@@ -97,7 +121,7 @@ export function HomeChat() {
           id: `${Date.now()}-assistant`,
           role: "assistant",
           text: payload.response,
-          meta: payload.source === "ollama" ? "Generated locally" : `Source · ${payload.source}`,
+          meta: payload.source === "ollama" ? "Generated locally" : `Source - ${payload.source}`,
         },
       ]);
 

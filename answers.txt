@@ -1,0 +1,374 @@
+PROJECT_ARCHITECTURE_STRESS_TEST - Implementation Answers
+
+Scope
+These answers are based on the current code in this repository, especially `app/main.py`, `app/chat_memory.py`, `app/memory_service.py`, `app/semantic_memory.py`, `app/router_service.py`, `app/llm_engine.py`, `app/summarizer.py`, `app/models.py`, `.env.example`, and the Alembic revisions. Where the code does not implement a feature, I state that directly instead of inferring intended behavior.
+
+--- DATABASE & STORAGE ---
+
+1. How are you handling the cleaning of chat logs before they enter ChromaDB?
+Answer:
+There is no dedicated cleaning pipeline before ChromaDB. In `ChatMemoryService.add_message`, the raw chat text is encrypted into SQL, and if the role is `user`, the original message is passed to `SemanticMemoryService.index_user_prompt`. Inside `index_user_prompt`, the only guard is `if not content.strip(): return`, so blank input is skipped and leading/trailing whitespace is effectively ignored. There is no profanity filter, no log sanitizer, no PII scrubber, no removal of stack traces, and no normalization beyond trimming. So the current design is "store raw user-authored prompts as-is" in Chroma, not "clean then store".
+
+2. Are you using SQLAlchemy to store raw chat strings or structured "Fact" entities?
+Answer:
+Both, but in different tables.
+- Raw encrypted chat strings are stored in `chat_messages` via `ChatMessageRecord`.
+- Structured remembered facts are stored in `user_memories` via `UserMemoryRecord`.
+- Higher-confidence structured profile facts are also mirrored into `user_profile` via `UserProfileRecord`.
+So SQLAlchemy is being used for both conversational history and structured fact storage.
+
+3. In MySQL, do you have a 'sessions' table linked to your vector embeddings?
+Answer:
+No. There is no `sessions` table in the ORM models or Alembic migrations, and there is no relational link between SQL rows and Chroma embeddings at a session level. The current Chroma IDs are simple IDs like `user:{message_id}` and `note:{note_id}`. Those IDs are tied to message and note records, not to a user session entity.
+
+4. How do you handle "duplicate memory" (e.g., if you mention SIET in 10 different chats)?
+Answer:
+It depends on the memory type.
+- For structured facts such as name, location, CGPA, or favorites, duplicates are controlled by key-based upsert. `UserMemoryService.upsert_memory` overwrites the existing value for the same key, so there is only one live value per fact key.
+- For profile facts mirrored into `user_profile`, the same last-write-wins behavior exists via `GroundTruthService.upsert_profile`.
+- For chat prompts indexed into Chroma, duplicates are not deduplicated semantically. Every user message gets its own embedding ID based on message ID. If "SIET" appears in 10 separate prompts, Chroma will hold 10 separate prompt documents.
+So duplicate handling is strong for structured fact tables and weak for vectorized chat prompts.
+
+5. Are you using Time-Decay? (Do older chats have less weight than new ones?)
+Answer:
+No. There is no time-decay scoring in either SQL retrieval or Chroma retrieval. The only time-based behavior is:
+- SQL recent chat listing orders by `created_at desc` and returns the latest N rows.
+- User memories list by `updated_at desc`.
+But the vector lookup itself does not reduce the score of older items.
+
+6. What is the 'Chunk Size' and 'Overlap' you are using for your text file splitter?
+Answer:
+None. There is no text splitter in the current implementation. Uploaded files are read in the frontend with `File.text()`, concatenated into one large `note_text` string, and sent to `/summarize`. The backend stores and summarizes that full payload directly. So:
+- Chunk size: not implemented
+- Overlap: not implemented
+
+7. How often does your Alembic migration script update the vector schema?
+Answer:
+It does not. Alembic currently manages SQL schema only. The migrations create or change SQL tables like `chat_messages`, `user_memories`, `user_profile`, `project_registry`, and `notes.project_id`. Chroma schema is not versioned through Alembic at all.
+
+8. Are you storing the "Assistant" responses in ChromaDB too, or only the "User" messages?
+Answer:
+Only user messages go into ChromaDB. In `ChatMemoryService.add_message`, Chroma indexing is triggered only when `role == "user"`. Assistant replies are still stored in SQL chat history, but they are not embedded into Chroma.
+
+9. Is your ChromaDB running in-memory or is it persistent on your local drive?
+Answer:
+Persistent on local drive. `SemanticMemoryService` uses `chromadb.PersistentClient(path=...)`, and the configured default path is `data/chroma` from `.env.example`. So embeddings persist on disk across restarts if that folder is preserved.
+
+10. How do you handle "Correction" logs? (If you tell the AI "I changed my college," how is the old data deleted?)
+Answer:
+There is only partial support.
+- Structured facts are effectively corrected by overwrite. If the new message matches a supported fact pattern and maps to the same key, `upsert_memory` and `upsert_profile` replace the old value.
+- Old SQL chat messages are not deleted automatically.
+- Old Chroma prompt embeddings are not deleted automatically.
+- There is no explicit "correction log", tombstone, or delete-by-superseded-fact mechanism.
+So the live structured fact can be corrected, but the historical evidence remains in chat history and Chroma unless a manual delete feature is added.
+
+--- RETRIEVAL & CONTEXT ---
+
+11. When the user asks a question, how many "top_k" results are you pulling from ChromaDB?
+Answer:
+For note retrieval, the default is 3. `SemanticMemoryService.query_notes(..., limit=3)` calls Chroma with `n_results=limit`. In the `/chat` flow, the call uses the default limit, so practical `top_k` for semantic notes is 3.
+There is no production code path that retrieves embedded user prompts back from Chroma.
+
+12. Are you using 'Cosine Similarity' or 'Euclidean Distance' for your vector search?
+Answer:
+The code does not explicitly configure a Chroma distance metric, so this is not pinned in code. What is explicit is:
+- Embeddings are generated with `normalize_embeddings=True`.
+- Intent routing uses a manual dot product over normalized vectors, which behaves like cosine similarity.
+- Chroma collections are created without custom collection metadata for distance space.
+So for intent classification, it is effectively cosine-like. For Chroma retrieval, the repo leaves the metric implicit, so you cannot truthfully say the app explicitly chooses cosine or Euclidean in code.
+
+13. How do you prevent "Self-Hallucination" (The AI summarizing its own previous errors)?
+Answer:
+The project uses several defensive measures, but not a full formal anti-hallucination framework.
+- The summarizer prompt explicitly says to use only information in the note and not include unrelated commands or prior conversation.
+- `NotesSummarizer._looks_corrupted_summary` rejects outputs containing suspicious terms like `.pytest_tmp`, `git pull`, `rm -rf`, or other tool-like artifacts when those terms were not present in the note.
+- The corrupted-summary check also computes token overlap between note and generated summary and rejects very low-overlap outputs.
+- Chat prompting filters context aggressively so unrelated prior messages, facts, and notes are not always injected into the model.
+- Profile and project queries are answered directly from SQL before LLM generation.
+This is a good start, but it is still heuristic rather than a guaranteed hallucination-prevention layer.
+
+14. Do you use Metadata filtering (e.g., where 'category' = 'personal_info')?
+Answer:
+Yes, but only in a limited way for notes.
+- Chroma note retrieval always filters with `where={"kind": "note"}`.
+- If a project is resolved, it adds `project_id` to the filter as well.
+- Indexed user prompts are stored with metadata `{"kind": "user_prompt"}`, but there is no retrieval path that filters or uses them later.
+There is no metadata category like `personal_info` in the current Chroma layer.
+
+15. Is there a "Recency Bias" in your retrieval (fetching the last 5 chats regardless of relevance)?
+Answer:
+There is bounded recent-history injection, but not as a universal retrieval rule.
+- The app adds `recent_messages` from SQL with `limit=8`.
+- Those recent messages are only included in the LLM prompt for history-oriented queries, because `_select_context_for_message` only selects them for queries containing words like `remember`, `previous`, `earlier`, or `history`.
+- Tasks, events, notes, and facts are also capped, usually at 5.
+So there is a recency cap for prompt safety, but not a blanket "always fetch last 5 chats no matter what".
+
+16. How do you handle multi-turn conversations where the context changes mid-way?
+Answer:
+The system handles this by reclassifying every turn instead of maintaining a rich dialogue state.
+- Each new message is classified again by `IntentRouterService.classify`.
+- `_select_context_for_message` rebuilds a minimal relevant context for that exact message.
+- SQL-grounded answers run before the LLM for profile and project cases.
+This means the app is reasonably robust when the topic changes, because it does not blindly carry forward old context. However, it does not have a true conversation-state machine, slot tracker, or turn-to-turn intent memory.
+
+17. Are you using a Re-Ranker model after ChromaDB gives its initial results?
+Answer:
+No. Chroma results are used directly. There is no second-stage reranker, cross-encoder, or judge model.
+
+18. What happens if ChromaDB returns zero relevant results for a summary request?
+Answer:
+For the `/summarize` endpoint, nothing happens, because summarization does not depend on Chroma retrieval at all. It summarizes the submitted note text directly and then stores that note into Chroma afterward.
+For chat turns where semantic notes are queried and Chroma returns nothing:
+- `semantic_notes` becomes an empty list.
+- The app then falls back to SQL project lookup and/or regular chat generation.
+So zero semantic results does not break the request; the pipeline just continues without semantic note support.
+
+19. Does your system distinguish between "Facts" (I go to SIET) and "Preferences" (I like dark mode)?
+Answer:
+Partially.
+- Facts like name, location, occupation, CGPA, and language levels are stored as structured keys.
+- Preferences such as favorites are also stored, but only through a narrow `my favorite X is Y` pattern that becomes keys like `favorite_language`.
+- There is no formal ontology table or explicit `type=fact` versus `type=preference` field.
+So the distinction exists implicitly through key names and regex patterns, not through a full typed memory model.
+
+20. How do you handle "Context Window Overflow" if the retrieved chat history is too long?
+Answer:
+The current strategy is hard truncation and selective inclusion, not token-aware packing.
+- Recent messages are limited to 8.
+- Tasks, events, notes, and remembered facts are typically capped at 5.
+- Semantic notes are capped at 3.
+- The prompt builder only includes context classes judged relevant to the current message.
+This reduces prompt size, but there is no real token counting, summarization of long history, or overflow-aware compression pipeline.
+
+--- INTENT & MODEL (PHI-3) ---
+
+21. What is the exact System Prompt for your Intent Classification model?
+Answer:
+There is no system prompt for intent classification. Intent routing is not performed by Phi-3. It is a hybrid of:
+- keyword heuristics in `IntentRouterService._heuristic_intent`
+- an embedding-prototype similarity check in `_embedding_intent`
+So the exact answer is: no system prompt exists because the intent model is not prompt-driven.
+
+22. How many intent categories do you have? (e.g., SUMMARY, PERSONAL, TECH_SUPPORT)
+Answer:
+Six:
+- `PROFILE`
+- `PROJECT_INFO`
+- `TASK`
+- `SCHEDULE`
+- `NOTE`
+- `GENERAL`
+
+23. Does your intent model recognize "Identity" as a specific trigger for DB lookup?
+Answer:
+Not as a category literally named `IDENTITY`, but yes in practice.
+- Identity-like questions such as `what is my name`, `who am i`, `where do i live`, and CGPA/language-level questions are treated as profile-oriented queries.
+- More importantly, the `/chat` route checks SQL-grounded profile lookup before relying on intent classification for final response generation.
+So DB lookup for identity exists, but the label used is `PROFILE`, not `IDENTITY`.
+
+24. Is Phi-3's temperature set low (0.1 - 0.3) for summarization to prevent the 'pytest' hallucinations?
+Answer:
+Yes. `LocalLLMEngine.generate` sets `temperature` to `0.1` globally. That same generation path is used by the summarizer, so summarization runs with a low temperature. The low temperature is also backed up by the corrupted-summary rejection heuristics in `NotesSummarizer`.
+
+25. Are you using the 4k or 128k context window version of Phi-3?
+Answer:
+The repository does not specify that. The configured model name is just `phi3`. There is no code or config here that pins a specific Phi-3 variant such as 4k or 128k, so the actual answer depends on what model Ollama has installed locally.
+
+26. How do you feed the "Personalization" data into the prompt? (Prefix or Suffix?)
+Answer:
+As a prefix context block before the user message.
+- `LocalLLMEngine.chat` builds a prompt header describing the assistant behavior.
+- `_build_context_block` then injects selected local context such as tasks, events, semantic notes, recent messages, project data, and remembered facts.
+- Only after that does it append `User message:\n{message}`.
+So personalization and local context are prefix-style, not suffix-style.
+
+27. Does the model have a "Reject" instruction if it doesn't find personal info?
+Answer:
+The rejection behavior is mostly implemented outside the model.
+- `GroundTruthService.answer_profile_query` returns explicit messages like `I do not have your name saved yet.`
+- `UserMemoryService.answer_memory_query` returns similar missing-memory responses.
+This means the system rejects unsupported or missing profile lookups before the LLM is asked. There is no separate Phi-3 instruction that says "reject if personal info is missing"; the code path handles it directly.
+
+28. Is your small intent model a Fine-tuned version or a Prompt-based one?
+Answer:
+Neither. It is a hand-built classifier that uses:
+- deterministic heuristics first
+- a general-purpose embedding model (`all-MiniLM-L6-v2`) plus prototype matching second
+So it is not a fine-tuned classifier and not a prompt-based LLM classifier.
+
+29. How does your intent model handle "ambiguous" queries like "Tell me about it"?
+Answer:
+Not very deeply.
+- Heuristics will likely label that as `GENERAL`.
+- The embedding prototype fallback may change the label if the sentence lands close enough to one prototype class and exceeds the similarity threshold of `0.40`.
+- There is no explicit use of prior turn referents such as "it" resolution.
+So ambiguous pronoun-heavy turns are a weak point in the current router.
+
+30. Does the intent model have access to the *previous* turn's intent?
+Answer:
+No. Each turn is classified independently. The current code does not store or pass prior intent labels into the next intent decision.
+
+--- DATA INTEGRITY & PRIVACY ---
+
+31. How are you preventing technical logs (like the .pytest_tmp error) from being saved as "Chat History"?
+Answer:
+Only partially.
+- The frontend sends uploaded files to `/summarize`, not `/chat`, so uploaded file contents are not automatically stored as chat history.
+- The summarizer has a heuristic filter to reject tool-like or corrupted generated summaries containing terms such as `.pytest_tmp`.
+- But for actual `/chat` requests, the raw user message is saved immediately by `memory.add_message("user", request.message)` before any sanitization.
+So the system prevents some contamination in summary generation, but it does not sanitize all technical logs out of chat history storage.
+
+32. Is there a "Clear Memory" command in your UI?
+Answer:
+No. I did not find a clear-memory endpoint or a UI control that deletes chat history, Chroma embeddings, or remembered facts. The frontend only stores a browser-session copy of messages in `sessionStorage` for convenience, but that is not a true memory reset feature.
+
+33. How do you handle acronyms? (Does the system know SIET = State Institute of Engineering & Tech?)
+Answer:
+There is no acronym resolution layer. The system will remember or retrieve exact strings if they are saved, and project matching does normalized substring matching, but it does not maintain an acronym dictionary or alias-expansion map. So SIET and its expanded form are not automatically linked unless you store them explicitly in a way the current regexes or project registry can use.
+
+34. Are you using any PII (Personally Identifiable Information) masking?
+Answer:
+No masking layer is implemented. The privacy strategy is encryption at rest, not redaction before storage.
+- Sensitive SQL fields are encrypted with Fernet before persistence.
+- Chroma content is not encrypted by this app layer and is stored as raw text in the local persistent Chroma store.
+So if the question is "mask before storing or displaying", the answer is no.
+
+35. What is the "Embedding Model" you are using for ChromaDB? (nomic-embed, all-MiniLM, etc.?)
+Answer:
+By default: `sentence-transformers/all-MiniLM-L6-v2`.
+That value comes from `.env.example` and `app/config.py`.
+
+36. Does your embedding model support the language of your chats (English/German/Hindi)?
+Answer:
+The current default model is strongest for English and is not a strong multilingual choice. The code does not switch embedding model based on language, locale, or script. So:
+- English: reasonable
+- German: may work partially, but not ideal
+- Hindi: weaker and likely unreliable relative to multilingual embeddings
+If multilingual support matters, this is an architectural gap.
+
+37. How do you deal with "Conflicting Memories" (e.g., a chat from 2025 vs 2026)?
+Answer:
+Structured memory uses last-write-wins.
+- `user_memories` and `user_profile` overwrite the stored value for a given key.
+- No confidence score, timestamp conflict policy, or version history is used when answering.
+Historical chat rows remain in SQL, and historical user prompts remain in Chroma, so conflicts can still exist in raw history even though the structured answer path will return only the latest structured value.
+
+38. Is your file-reading logic (for the .txt files) stripping out non-text characters?
+Answer:
+No real sanitization exists.
+- The browser uses `File.text()` to read the file.
+- The backend trims whitespace with `.strip()`.
+There is no binary detection, encoding cleanup, Unicode normalization, or removal of control characters beyond whatever the browser already handles.
+
+39. How do you distinguish between "Project Data" and "Personal Data" in the same DB?
+Answer:
+By separate tables and metadata boundaries.
+- Personal facts live in `user_memories` and `user_profile`.
+- Project records live in `project_registry`.
+- Notes can optionally carry `project_id`.
+- Chroma note retrieval filters on `kind="note"` and optionally `project_id`.
+So the repo does separate those domains structurally, but it does not implement deeper tenancy or access-control rules.
+
+40. Is your MySQL database encrypted?
+Answer:
+Not as a whole, based on repo configuration. What is encrypted is selected application data before it reaches MySQL.
+- Task titles/descriptions, note text/summaries, event location/notes, chat content, profile values, and memory values are encrypted with Fernet in the app.
+- The repository does not configure MySQL tablespace encryption, disk encryption, or TLS connections.
+So the accurate answer is: application fields are encrypted at rest, but MySQL itself is not shown as fully encrypted by infrastructure settings in this repo.
+
+--- SCALABILITY & PERFORMANCE ---
+
+41. What is the latency (delay) when you add "Search Chat History" to the pipeline?
+Answer:
+There is no benchmark or tracing output in the repo, so there is no trustworthy measured latency number. Architecturally, the added work is:
+- one SQL read for recent chat history, capped at 8
+- optional Chroma note query only for `PROJECT_INFO` and `NOTE`
+- no Chroma query for general chat-history recall
+This should be lightweight for small local datasets, but the project has not instrumented or reported actual latency.
+
+42. How do you handle the "Cold Start" problem (new user with no chat history)?
+Answer:
+Cold start is handled by graceful empties.
+- Missing tasks/events/notes return clean empty-state strings.
+- Missing memories return explicit `I do not have ... saved yet` responses.
+- If Ollama is down, the app still falls back to deterministic local responses instead of failing.
+There is no onboarding bootstrap memory or seeded profile; it simply starts empty and remains functional.
+
+43. Are you using Asynchronous calls (Python `asyncio`) for DB and LLM requests?
+Answer:
+No, not for the main work.
+- FastAPI route handlers are synchronous `def`, not `async def`.
+- SQLAlchemy session usage is synchronous.
+- Ollama calls use the synchronous `requests` library.
+The only `async` element I saw is the FastAPI lifespan function, not the request pipeline itself.
+
+44. Does your Ollama instance run on a dedicated GPU or shared system RAM?
+Answer:
+The repository does not control that. It only points to an Ollama endpoint, usually `http://localhost:11434`. Hardware usage depends on how Ollama is installed and what model variant the host machine can run. So from the repo’s point of view, this is external deployment state, not an application-managed setting.
+
+45. How do you handle "Large File" summarization? (Do you summarize in chunks or all at once?)
+Answer:
+All at once. The frontend reads the full file text and concatenates all uploaded files into one `note_text` payload. The backend sends that full text to the summarizer and stores it as one note. There is no chunking, map-reduce summarization, sliding window, or recursive summarization tree.
+
+46. Is there a "Feedback Loop" (Can the user tell the AI 'This summary was wrong')?
+Answer:
+Not as a dedicated product feature.
+- There is no explicit correction UI, thumbs up/down, human feedback table, or retraining loop.
+- A user can always submit a better prompt or edit stored records via other routes, but there is no structured feedback subsystem.
+
+47. How do you handle "Session Drift" (The user starts talking about something totally different)?
+Answer:
+The current mitigation is per-turn intent refresh plus context filtering.
+- Intent is recomputed every turn.
+- Context injection is narrowed to what seems relevant for that turn.
+- The app does not carry a heavy conversation state forward by default.
+This helps against session drift, but there is no explicit topic-segmentation engine or "start new thread" semantic reset beyond what the UI stores in browser session state.
+
+48. What is the "Top-P" and "Top-K" sampling setting for your Phi-3 generation?
+Answer:
+- `top_p` is set to `0.9`
+- `top_k` is not set in the current Ollama options payload
+The other relevant generation value is `temperature = 0.1`.
+
+49. Are you using "Stop Tokens" to prevent the AI from rambling?
+Answer:
+No. The request payload to Ollama does not define stop tokens. Output length is limited only indirectly by prompt design and `num_predict = 220`.
+
+50. If you build this for your SIET project, how will you demo the "Personalization" feature to teachers?
+Answer:
+The cleanest demo would be a short staged flow that matches what the code actually supports today.
+
+Recommended demo sequence:
+1. Start with an empty database and say:
+   `My name is Namit, I live in Chandigarh, my CGPA is 8.7, and my favorite language is Python.`
+   This demonstrates regex capture into `user_memories` and mirroring into `user_profile`.
+2. Ask:
+   `What is my name?`
+   `Where do I live?`
+   `What is my CGPA?`
+   `What is my favorite language?`
+   This proves structured recall from local storage rather than generic LLM guessing.
+3. Add a project record through the UI or API:
+   project_id `SIET_2026`, name `SIET Final Year Demo`, team members, status.
+4. Upload a project-related note and summarize it.
+   This demonstrates note storage plus Chroma indexing with optional `project_id`.
+5. Ask:
+   `Tell me about the SIET Final Year Demo project.`
+   This shows SQL-grounded project recall and, if relevant, related semantic notes.
+6. Turn off or disconnect Ollama briefly and repeat a memory question.
+   This proves the privacy-first and offline fallback story.
+
+What teachers will see clearly:
+- personal facts are remembered locally
+- project facts are separated from personal facts
+- note summaries are stored and retrievable
+- the app still behaves predictably offline
+
+What you should not claim in the demo:
+- that the system has advanced conflict resolution
+- that it sanitizes all logs before storage
+- that it supports multilingual semantic memory well
+- that it has full session-level memory management or clear-memory controls
+
+If you present it honestly, the strongest message is: this is a local-first assistant with encrypted structured memory, simple semantic retrieval for notes, SQL-grounded personalization, and deterministic fallbacks when the model is unavailable.

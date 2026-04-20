@@ -14,6 +14,9 @@ from app.config import get_settings
 class LocalLLMEngine:
     """Wrapper for a local Ollama model with deterministic offline fallbacks."""
 
+    _availability_cache: dict[tuple[str, str], tuple[float, bool]] = {}
+    _availability_ttl_seconds = 5.0
+
     def __init__(
         self,
         model_name: str | None = None,
@@ -27,22 +30,43 @@ class LocalLLMEngine:
 
     def is_available(self) -> bool:
         """Check whether the local Ollama service is reachable."""
+        cache_key = (self.model_name, self.ollama_url)
+        now = datetime.now().timestamp()
+        cached = self._availability_cache.get(cache_key)
+        if cached and now - cached[0] < self._availability_ttl_seconds:
+            return cached[1]
+
         try:
             response = requests.get(f"{self.ollama_url}/api/tags", timeout=3)
             response.raise_for_status()
             payload = response.json()
             models = payload.get("models", [])
-            return any(model.get("name", "").startswith(self.model_name) for model in models) or bool(models)
+            available = any(model.get("name", "").startswith(self.model_name) for model in models) or bool(models)
+            self._availability_cache[cache_key] = (now, available)
+            return available
         except requests.RequestException:
+            self._availability_cache[cache_key] = (now, False)
             return False
 
-    def generate(self, prompt: str, system_prompt: str | None = None) -> str:
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: str | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> str:
         """Generate text locally, falling back to a deterministic local response."""
         payload: dict[str, Any] = {
             "model": self.model_name,
             "prompt": prompt,
             "stream": False,
+            "options": {
+                "temperature": 0.1,
+                "top_p": 0.9,
+                "num_predict": 220,
+            },
         }
+        if options:
+            payload["options"].update(options)
         if system_prompt:
             payload["system"] = system_prompt
 

@@ -167,6 +167,7 @@ def chat(
     profile_answer = ground_truth.answer_profile_query(request.message)
     if profile_answer is not None:
         analytics.track("chat", "memory_recalled", {"kind": "profile_sql"})
+        memory.add_message("assistant", profile_answer)
         return ChatResponse(
             response=profile_answer,
             source="memory",
@@ -178,6 +179,7 @@ def chat(
     recalled_answer = user_memory.answer_memory_query(request.message)
     if recalled_answer is not None:
         analytics.track("chat", "memory_recalled", {"kind": "fact"})
+        memory.add_message("assistant", recalled_answer)
         return ChatResponse(
             response=recalled_answer,
             source="memory",
@@ -229,7 +231,7 @@ def chat(
         else:
             response, source = llm_engine.chat(request.message, context={"project": project, "semantic_notes": semantic_notes, "intent": intent})
     elif intent == "GENERAL":
-        response, source = llm_engine.chat(request.message, context={"intent": intent})
+        response, source = llm_engine.chat(request.message, context=context)
     else:
         response, source = llm_engine.chat(request.message, context=context)
     analytics.track("chat", "message_sent", {"source": source})
@@ -241,6 +243,7 @@ def chat(
         analytics.track("schedule", "event_created_from_chat", {"event_id": event["id"]})
     for item in captured_memories:
         analytics.track("chat", "memory_saved", {"key": item["key"]})
+    memory.add_message("assistant", response)
     return ChatResponse(
         response=response,
         source=source,
@@ -248,6 +251,14 @@ def chat(
         created_events=[{"id": event["id"], "title": event["title"]} for event in created_events],
         completed_tasks=[{"id": task["id"], "title": task["title"]} for task in completed_tasks],
     )
+
+
+@app.get("/chat/history")
+def chat_history(
+    memory: Annotated[ChatMemoryService, Depends(get_chat_memory_service)],
+) -> list[dict[str, Any]]:
+    """Return recent persisted chat history for workspace reloads."""
+    return memory.list_recent_messages(limit=24)
 
 
 @app.get("/memories")

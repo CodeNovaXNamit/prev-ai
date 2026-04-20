@@ -20,6 +20,21 @@ def test_llm_generate_uses_remote_response_when_available() -> None:
     assert result == "Local model reply"
 
 
+def test_llm_generate_allows_call_specific_options() -> None:
+    engine = LocalLLMEngine(model_name="phi3", ollama_url="http://localhost:11434")
+    fake_response = Mock()
+    fake_response.raise_for_status.return_value = None
+    fake_response.json.return_value = {"response": "Configured reply"}
+
+    with patch("app.llm_engine.requests.post", return_value=fake_response) as mocked_post:
+        result = engine.generate("Hello", options={"temperature": 0.0, "num_predict": 80})
+
+    assert result == "Configured reply"
+    payload = mocked_post.call_args.kwargs["json"]
+    assert payload["options"]["temperature"] == 0.0
+    assert payload["options"]["num_predict"] == 80
+
+
 def test_llm_generate_falls_back_without_network() -> None:
     engine = LocalLLMEngine(model_name="phi3", ollama_url="http://localhost:11434")
 
@@ -86,6 +101,41 @@ def test_summarizer_uses_extractive_fallback(session) -> None:
         )
 
     assert result["summary"].startswith("- ")
+
+
+def test_summarizer_rejects_unrelated_tool_like_output(session) -> None:
+    engine = LocalLLMEngine()
+    summarizer = NotesSummarizer(session=session, llm_engine=engine)
+
+    bad_output = (
+        "- Ensure `.pytest_tmp/` directory isn't in use.\n"
+        "- Terminate the process and run git pull.\n"
+        "- Use rm -rf cautiously."
+    )
+
+    with patch.object(engine, "generate", return_value=bad_output):
+        result = summarizer.summarize(
+            title="Lecture Notes",
+            note_text="Consensus improves resilience. Leader election coordinates writes. Failure detection matters.",
+        )
+
+    assert ".pytest_tmp" not in result["summary"]
+    assert "Leader election" in result["summary"] or "Consensus" in result["summary"]
+
+
+def test_summarizer_uses_stricter_generation_options(session) -> None:
+    engine = LocalLLMEngine()
+    summarizer = NotesSummarizer(session=session, llm_engine=engine)
+
+    with patch.object(engine, "generate", return_value="- Concise summary") as mocked_generate:
+        summarizer.summarize(
+            title="Lecture Notes",
+            note_text="Consensus improves resilience. Leader election coordinates writes. Failure detection matters.",
+        )
+
+    assert mocked_generate.call_args.kwargs["options"]["temperature"] == 0.0
+    assert mocked_generate.call_args.kwargs["options"]["num_predict"] == 120
+    assert mocked_generate.call_args.kwargs["options"]["repeat_penalty"] == 1.15
 
 
 def test_local_context_answers_specific_appointment_query() -> None:

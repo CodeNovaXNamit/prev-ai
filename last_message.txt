@@ -33,3 +33,6 @@ Then test:
 - http://localhost:8000/system/status
 
 If you want, after you run the first prune/rebuild sequence, send me the new output and I’ll tell you the exact next step.
+
+
+hello

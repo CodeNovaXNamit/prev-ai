@@ -11,6 +11,24 @@ import requests
 from app.config import get_settings
 
 
+CORE_IDENTITY = """
+USER CONTEXT:
+- Primary Location: Nilokheri, Haryana, India.
+- Institution: State Institute of Engineering and Technology (SIET), Nilokheri.
+- Status: 2nd Year Computer Science Engineering (CSE) Student.
+- RULE: Never assume the user is in Thailand or associated with 'Set'.
+- RULE: If a fact is unknown, simply say 'Unknown'. Do not guess.
+""".strip()
+
+CORE_NEGATIVE_CONSTRAINTS = (
+    "CRITICAL: Do not include meta-commentary about your own capabilities, privacy policies, or internal assumptions. "
+    "Do not use phrases like 'I'll remember that' or 'As an on-device assistant'. "
+    "Do not mention Thailand unless the user explicitly asks about Thailand. "
+    "CRITICAL: You are a private, local-first AI. Never lecture the user on privacy, security, or data sharing. "
+    "Do not explain your capabilities or limitations unless explicitly asked. Be concise, professional, and omit meta-commentary."
+)
+
+
 class LocalLLMEngine:
     """Wrapper for a local Ollama model with deterministic offline fallbacks."""
 
@@ -53,6 +71,7 @@ class LocalLLMEngine:
         prompt: str,
         system_prompt: str | None = None,
         options: dict[str, Any] | None = None,
+        include_core_identity: bool = True,
     ) -> str:
         """Generate text locally, falling back to a deterministic local response."""
         payload: dict[str, Any] = {
@@ -67,8 +86,7 @@ class LocalLLMEngine:
         }
         if options:
             payload["options"].update(options)
-        if system_prompt:
-            payload["system"] = system_prompt
+        payload["system"] = self._build_system_prompt(system_prompt, include_core_identity=include_core_identity)
 
         try:
             response = requests.post(
@@ -84,24 +102,149 @@ class LocalLLMEngine:
 
     def chat(self, message: str, context: dict[str, Any] | None = None) -> tuple[str, str]:
         """Respond conversationally using the local model."""
+        context = context or {}
         if not self.is_available():
-            return self._chat_fallback(message, context or {}), "fallback"
+            return self._chat_fallback(message, context), "fallback"
 
-        prompt = (
-            "You are a privacy-first personal AI assistant running entirely on-device. "
-            "Answer only the user's current request. "
-            "Use only the local context explicitly provided below when it is relevant. "
-            "Do not mention or reuse unrelated prior conversation, notes, user facts, or troubleshooting details.\n\n"
+        selected = self._select_context_for_message(message, context)
+        prompt = self.get_grounded_chat_prompt(
+            user_query=message,
+            retrieved_context=selected,
         )
-        filtered_context = self._select_context_for_message(message, context or {})
-        if filtered_context:
-            prompt += self._build_context_block(filtered_context)
-        prompt += f"User message:\n{message}\n"
         return self.generate(prompt), "ollama"
+
+    def get_extraction_prompt(self, user_input: str) -> str:
+        """Build the clean extraction prompt with no static grounding."""
+        return (
+            "SYSTEM: You are a data parser. Extract personal facts from the USER_INPUT.\n"
+            "FORMAT: Key | Value\n"
+            "RULES:\n"
+            "1. ONLY extract what is explicitly in USER_INPUT.\n"
+            "2. Do NOT use outside knowledge or assumptions.\n"
+            "3. If no facts, return 'NONE'.\n\n"
+            f"USER_INPUT: {user_input}\n\n"
+            "OUTPUT:"
+        )
+
+    def get_grounded_chat_prompt(
+        self,
+        user_query: str,
+        retrieved_context: dict[str, Any] | None = None,
+    ) -> str:
+        """Build the grounded generation prompt with static identity and retrieved context."""
+        extra_context = retrieved_context or {}
+        profile_data = extra_context.get("profile_data", {})
+        chroma_facts = extra_context.get("dynamic_facts", [])
+        recent_history = extra_context.get("recent_messages", [])
+        identity_lines = [
+            f"You are the personal assistant for {profile_data.get('name', 'the user')}.",
+        ]
+        if profile_data.get("college") or profile_data.get("degree"):
+            identity_lines.append(
+                "The user studies "
+                f"{profile_data.get('degree', 'their course')}"
+                + (f" at {profile_data['college']}." if profile_data.get("college") else ".")
+            )
+        if profile_data.get("location"):
+            identity_lines.append(f"The user is from {profile_data['location']}.")
+        if profile_data.get("cgpa"):
+            identity_lines.append(f"The user's CGPA is {profile_data['cgpa']}.")
+
+        fact_lines: list[str] = []
+        for item in chroma_facts:
+            if isinstance(item, str):
+                fact_lines.append(f"- {item}")
+            elif item.get("text"):
+                fact_lines.append(f"- {item['text']}")
+
+        history_lines: list[str] = []
+        if recent_history:
+            history_lines = [
+                f"- {entry.get('role', 'unknown')}: {entry.get('content', '')}"
+                for entry in recent_history
+                if str(entry.get("content", "")).strip()
+            ]
+
+        sections = [
+            "### STATIC GROUNDING (Source of Truth)",
+            "- Location: Nilokheri, Haryana, India.",
+            "- Institution: State Institute of Engineering and Technology (SIET).",
+            "",
+            "You are a privacy-first personal AI assistant running entirely on-device.",
+            "Use only the context below when it is relevant. Do not invent profile facts or reuse unrelated troubleshooting text.",
+            CORE_NEGATIVE_CONSTRAINTS,
+            "",
+            "### IDENTITY",
+            "\n".join(identity_lines),
+        ]
+
+        if fact_lines:
+            sections.extend(["", "### RELEVANT MEMORIES", "\n".join(fact_lines)])
+
+        if extra_context.get("project"):
+            sections.extend(
+                [
+                    "",
+                    "### PROJECT CONTEXT",
+                    str(extra_context["project"]),
+                ]
+            )
+        if extra_context.get("tasks"):
+            sections.extend(["", "### TASKS", str(extra_context["tasks"])])
+        if extra_context.get("events"):
+            sections.extend(["", "### EVENTS", str(extra_context["events"])])
+        if extra_context.get("notes"):
+            sections.extend(["", "### NOTES", str(extra_context["notes"])])
+        if extra_context.get("semantic_notes"):
+            sections.extend(["", "### RELATED NOTES", str(extra_context["semantic_notes"])])
+
+        if history_lines:
+            sections.extend(["", "### RECENT CONVERSATION", "\n".join(history_lines)])
+        sections.extend(
+            [
+                "",
+                "### INSTRUCTION",
+                "Summarize or answer the user request using the context above.",
+                "If information is missing, say you don't know. Do not hallucinate locations.",
+                "",
+                "### USER REQUEST",
+                user_query,
+                "",
+                "### RESPONSE",
+            ]
+        )
+        return "\n".join(sections)
+
+    def build_personalized_prompt(
+        self,
+        user_query: str,
+        profile_data: dict[str, str],
+        chroma_facts: list[dict[str, Any]] | list[str],
+        recent_history: list[dict[str, Any]],
+        extra_context: dict[str, Any] | None = None,
+    ) -> str:
+        """Backward-compatible wrapper for grounded generation prompts."""
+        merged = dict(extra_context or {})
+        merged.setdefault("profile_data", profile_data)
+        merged.setdefault("dynamic_facts", chroma_facts)
+        merged.setdefault("recent_messages", recent_history)
+        return self.get_grounded_chat_prompt(user_query, merged)
+
+    def _build_system_prompt(self, system_prompt: str | None, *, include_core_identity: bool = True) -> str:
+        """Compose the static grounding block with any task-specific instructions."""
+        parts = [CORE_NEGATIVE_CONSTRAINTS]
+        if include_core_identity:
+            parts.insert(0, CORE_IDENTITY)
+        if system_prompt:
+            parts.append(system_prompt.strip())
+        return "\n\n".join(part for part in parts if part)
 
     def answer_from_local_context(self, message: str, context: dict[str, Any]) -> str | None:
         """Answer directly from stored local context when possible."""
-        message_lower = message.lower()
+        message_lower = message.lower().strip()
+
+        if message_lower in {"hi", "hello", "hey", "hey there", "hi there"}:
+            return "Hello. How can I help?"
 
         if any(word in message_lower for word in ["schedule", "event", "calendar", "meeting", "appointment"]):
             return self._format_schedule_for_query(context.get("events", []), message)
@@ -134,36 +277,36 @@ class LocalLLMEngine:
             return self._format_notes(context.get("notes", []))
 
         if any(word in message_lower for word in ["remember", "previous", "earlier", "history"]):
+            if context.get("recent_messages"):
+                return self._format_recent_messages(context.get("recent_messages", []))
+            if context.get("profile_data"):
+                profile_summary = ", ".join(f"{key}: {value}" for key, value in context["profile_data"].items())
+                return f"I remember these profile details: {profile_summary}."
             return self._format_recent_messages(context.get("recent_messages", []))
 
         return (
             "Ollama is not running, so full free-form chat is unavailable. "
-            "I stayed fully offline. I can still answer from your local tasks, schedule, and notes."
+            "I stayed fully offline. I can still answer from your local tasks, schedule, notes, and saved profile."
         )
 
-    def _build_context_block(self, context: dict[str, Any]) -> str:
-        """Convert structured context into a prompt-safe text block."""
-        lines = ["Relevant local context:"]
-        if context.get("tasks"):
-            lines.append(f"Tasks: {context['tasks']}")
-        if context.get("events"):
-            lines.append(f"Events: {context['events']}")
-        if context.get("notes"):
-            lines.append(f"Notes: {context['notes']}")
-        if context.get("semantic_notes"):
-            lines.append(f"Semantic notes: {context['semantic_notes']}")
-        if context.get("project"):
-            lines.append(f"Project: {context['project']}")
-        if context.get("recent_messages"):
-            lines.append(f"Recent chat memory: {context['recent_messages']}")
-        if context.get("remembered_facts"):
-            lines.append(f"Remembered user facts: {context['remembered_facts']}")
-        return "\n".join(lines) + "\n\n"
-
     def _select_context_for_message(self, message: str, context: dict[str, Any]) -> dict[str, Any]:
-        """Keep only the context that is directly relevant to the current request."""
+        """Select context in priority order: profile, semantic facts, project, then short-term history."""
         message_lower = message.lower()
         selected: dict[str, Any] = {}
+
+        profile_data = context.get("profile_data") or {}
+        if profile_data:
+            selected["profile_data"] = profile_data
+
+        dynamic_facts = context.get("dynamic_facts") or []
+        if dynamic_facts:
+            selected["dynamic_facts"] = dynamic_facts
+
+        if context.get("project"):
+            selected["project"] = context["project"]
+
+        if context.get("recent_messages"):
+            selected["recent_messages"] = context["recent_messages"][:5]
 
         if any(word in message_lower for word in ["schedule", "event", "calendar", "meeting", "appointment"]):
             if context.get("events"):
@@ -178,10 +321,6 @@ class LocalLLMEngine:
                 selected["notes"] = context["notes"]
             if context.get("semantic_notes"):
                 selected["semantic_notes"] = context["semantic_notes"]
-
-        if any(word in message_lower for word in ["remember", "previous", "earlier", "history"]):
-            if context.get("recent_messages"):
-                selected["recent_messages"] = context["recent_messages"]
 
         if any(word in message_lower for word in ["project", "hvac", "flood"]):
             if context.get("project"):
@@ -202,10 +341,11 @@ class LocalLLMEngine:
                 "what is my city",
                 "what do i do",
                 "what is my job",
+                "what degree am i studying",
+                "what is my college",
             ]
         ):
-            if context.get("remembered_facts"):
-                selected["remembered_facts"] = context["remembered_facts"]
+            selected["recent_messages"] = context.get("recent_messages", [])[:5]
 
         return selected
 
@@ -238,15 +378,24 @@ class LocalLLMEngine:
         message_lower = message.lower()
         if "morning" in message_lower:
             filtered = [
-                event for event in filtered if self._event_hour(event.get("start_time", "")) is not None and self._event_hour(event.get("start_time", "")) < 12
+                event
+                for event in filtered
+                if self._event_hour(event.get("start_time", "")) is not None
+                and self._event_hour(event.get("start_time", "")) < 12
             ]
         elif "afternoon" in message_lower:
             filtered = [
-                event for event in filtered if self._event_hour(event.get("start_time", "")) is not None and 12 <= self._event_hour(event.get("start_time", "")) < 18
+                event
+                for event in filtered
+                if self._event_hour(event.get("start_time", "")) is not None
+                and 12 <= self._event_hour(event.get("start_time", "")) < 18
             ]
         elif "evening" in message_lower or "night" in message_lower:
             filtered = [
-                event for event in filtered if self._event_hour(event.get("start_time", "")) is not None and self._event_hour(event.get("start_time", "")) >= 18
+                event
+                for event in filtered
+                if self._event_hour(event.get("start_time", "")) is not None
+                and self._event_hour(event.get("start_time", "")) >= 18
             ]
 
         if not filtered:

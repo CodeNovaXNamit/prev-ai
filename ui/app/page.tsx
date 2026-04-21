@@ -1,7 +1,14 @@
 import Link from "next/link";
 
 import { ParallaxStage } from "@/components/app/parallax-stage";
+import {
+  LiveArchitectureSection,
+  LiveFeatureGrid,
+  LiveMetricsSection,
+  LiveOutcomeSection,
+} from "@/components/landing/live-sections";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { BrandLogo } from "@/components/ui/brand-logo";
 
 const featureCards = [
   {
@@ -68,16 +75,7 @@ export default function LandingPage() {
         <header className="topbar">
           <a className="brand" href="#top" aria-label="PrivAI home">
             <span className="brand-mark" aria-hidden="true">
-              <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M7 11V8.8C7 5.6 9.6 3 12.8 3C16 3 18.6 5.6 18.6 8.8V11"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                />
-                <rect x="5" y="10" width="15" height="11" rx="3" stroke="currentColor" strokeWidth="1.8" />
-                <path d="M12.5 14.2V17.1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
+              <BrandLogo className="brand-logo-svg" />
             </span>
             <span>PrivAI</span>
           </a>
@@ -132,14 +130,14 @@ export default function LandingPage() {
           </div>
 
           <ParallaxStage>
-            <div className="orbital-lines" aria-hidden="true" data-depth="0.55">
+            <div className="orbital-lines parallax-item" aria-hidden="true" data-depth="0.55">
               <span />
               <span />
               <span />
               <span />
             </div>
-            <div className="line-axis" aria-hidden="true" data-depth="0.45" />
-            <div className="lock-node" aria-hidden="true" data-depth="0.2">
+            <div className="line-axis parallax-item" aria-hidden="true" data-depth="0.45" />
+            <div className="lock-node parallax-item" aria-hidden="true" data-depth="0.2">
               <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
                 <path
                   d="M7 11V8.8C7 5.6 9.6 3 12.8 3C16 3 18.6 5.6 18.6 8.8V11"
@@ -152,41 +150,49 @@ export default function LandingPage() {
               </svg>
             </div>
 
-            <article className="floating-card top-left float" data-depth="0.95">
-              <h3>Chat locally</h3>
-              <p>Talk to the model through the live FastAPI backend with zero external API dependence.</p>
-              <div className="visual-stat">
-                <span className="dot" />
-                <strong>Session + memory</strong> stay private
-              </div>
-            </article>
+            <div className="floating-card-shell top-left parallax-item" data-depth="0.95">
+              <article className="floating-card float">
+                <h3>Chat locally</h3>
+                <p>Talk to the model through the live FastAPI backend with zero external API dependence.</p>
+                <div className="visual-stat">
+                  <span className="dot" />
+                  <strong>Session + memory</strong> stay private
+                </div>
+              </article>
+            </div>
 
-            <article className="floating-card top-right float-delayed" data-depth="1.1">
-              <h3>Task + event capture</h3>
-              <p>Natural language flows can create tasks and schedule records directly in the database.</p>
-              <div className="visual-stat">
-                <span className="dot" />
-                <strong>Structured actions</strong> from plain text
-              </div>
-            </article>
+            <div className="floating-card-shell top-right parallax-item" data-depth="1.1">
+              <article className="floating-card float-delayed">
+                <h3>Task + event capture</h3>
+                <p>Natural language flows can create tasks and schedule records directly in the database.</p>
+                <div className="visual-stat">
+                  <span className="dot" />
+                  <strong>Structured actions</strong> from plain text
+                </div>
+              </article>
+            </div>
 
-            <article className="floating-card bottom-left float-slow" data-depth="1">
-              <h3>Notes workflow</h3>
-              <p>Upload or paste source text and keep generated summaries available inside the new workspace.</p>
-              <div className="visual-stat">
-                <span className="dot" />
-                <strong>Original + summary</strong> saved locally
-              </div>
-            </article>
+            <div className="floating-card-shell bottom-left parallax-item" data-depth="1">
+              <article className="floating-card float-slow">
+                <h3>Notes workflow</h3>
+                <p>Upload or paste source text and keep generated summaries available inside the new workspace.</p>
+                <div className="visual-stat">
+                  <span className="dot" />
+                  <strong>Original + summary</strong> saved locally
+                </div>
+              </article>
+            </div>
 
-            <article className="floating-card bottom-right float" data-depth="0.9">
-              <h3>Live dashboard</h3>
-              <p>Inspect model health, counts, analytics, and protected-storage previews from one surface.</p>
-              <div className="visual-stat">
-                <span className="dot" />
-                <strong>Runtime visibility</strong> across the stack
-              </div>
-            </article>
+            <div className="floating-card-shell bottom-right parallax-item" data-depth="0.9">
+              <article className="floating-card float">
+                <h3>Live dashboard</h3>
+                <p>Inspect model health, counts, analytics, and protected-storage previews from one surface.</p>
+                <div className="visual-stat">
+                  <span className="dot" />
+                  <strong>Runtime visibility</strong> across the stack
+                </div>
+              </article>
+            </div>
           </ParallaxStage>
         </div>
       </section>
@@ -203,97 +209,11 @@ export default function LandingPage() {
           </p>
         </div>
 
-        <div className="grid-3">
-          {featureCards.map((card, index) => (
-            <article key={card.title} className={`feature-card reveal stagger-${index + 1}`}>
-              <div className="icon-wrap" aria-hidden="true">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M6 12L10 16L18 8"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </div>
-              <h3>{card.title}</h3>
-              <p>{card.copy}</p>
-              <ul>
-                {card.bullets.map((bullet) => (
-                  <li key={bullet}>{bullet}</li>
-                ))}
-              </ul>
-            </article>
-          ))}
-        </div>
+        <LiveFeatureGrid cards={featureCards} />
       </section>
 
       <section className="panel section reveal">
-        <div className="metrics">
-          <div className="metrics-board reveal stagger-1">
-            <div className="section-heading">
-              <div>
-                <span className="eyebrow">What changed</span>
-                <h2>Motion and depth without losing reliability.</h2>
-              </div>
-              <p>
-                The original animations are preserved and smoothed out with stronger easing, layered
-                aurora lighting, and subtle 3D parallax so the interface feels more premium without
-                making the app harder to maintain.
-              </p>
-            </div>
-            <div className="metrics-grid">
-              <article className="metric">
-                <div className="value">Live</div>
-                <div className="label">chat, tasks, notes, and events connected to the backend</div>
-              </article>
-              <article className="metric">
-                <div className="value">Smooth</div>
-                <div className="label">parallax, floating cards, and reveal transitions</div>
-              </article>
-              <article className="metric">
-                <div className="value">1</div>
-                <div className="label">shared visual system across landing and workspace pages</div>
-              </article>
-              <article className="metric">
-                <div className="value">0</div>
-                <div className="label">extra backend contract changes required for the UI swap</div>
-              </article>
-            </div>
-          </div>
-
-          <aside className="terminal-panel reveal stagger-2">
-            <div className="terminal-header">
-              <div>
-                <span className="eyebrow">Local Run</span>
-                <h3>Connected app stack</h3>
-              </div>
-            </div>
-            <div className="terminal-body">
-              <div className="terminal-line">
-                <span className="terminal-prompt">$</span>
-                <span>docker compose up -d mysql backend frontend</span>
-              </div>
-              <div className="terminal-line">
-                <span className="terminal-prompt">&gt;</span>
-                <span>MySQL healthy on <strong>localhost:3307</strong></span>
-              </div>
-              <div className="terminal-line">
-                <span className="terminal-prompt">&gt;</span>
-                <span>FastAPI live on <strong>localhost:8000</strong></span>
-              </div>
-              <div className="terminal-line">
-                <span className="terminal-prompt">&gt;</span>
-                <span>Next.js workspace live on <strong>localhost:3000</strong></span>
-              </div>
-              <div className="terminal-line">
-                <span className="terminal-prompt">&gt;</span>
-                <span>Ollama model reachable through the backend status checks</span>
-              </div>
-            </div>
-          </aside>
-        </div>
+        <LiveMetricsSection />
       </section>
 
       <section id="architecture" className="panel section reveal">
@@ -308,42 +228,7 @@ export default function LandingPage() {
           </p>
         </div>
 
-        <div className="story-layout">
-          <article className="story-card reveal stagger-1">
-            <span className="eyebrow">Core stack</span>
-            <h3>Built for local execution, not hosted dependency.</h3>
-            <ul className="story-list">
-              <li>The frontend calls FastAPI only, never the database directly.</li>
-              <li>Backend routes still own validation, orchestration, and encryption boundaries.</li>
-              <li>MySQL persists tasks, notes, events, and behavior analytics.</li>
-              <li>Ollama serves the local Phi-3 model for chat and summaries.</li>
-              <li>Docker still starts the whole stack with aligned ports and environment values.</li>
-            </ul>
-          </article>
-
-          <article className="story-card reveal stagger-2">
-            <span className="eyebrow">Request flow</span>
-            <h3>Simple enough to trust at a glance.</h3>
-            <div className="flow-lanes">
-              <div className="flow-lane">
-                <div className="flow-box">
-                  <strong>User prompt</strong>
-                  <span>Chat, summarize, or save an event.</span>
-                </div>
-                <div className="flow-arrow" aria-hidden="true" />
-                <div className="flow-box">
-                  <strong>FastAPI</strong>
-                  <span>Routes requests through local services.</span>
-                </div>
-                <div className="flow-arrow" aria-hidden="true" />
-                <div className="flow-box">
-                  <strong>Ollama / MySQL</strong>
-                  <span>Generate locally or persist locally.</span>
-                </div>
-              </div>
-            </div>
-          </article>
-        </div>
+        <LiveArchitectureSection />
       </section>
 
       <section id="dashboard" className="panel section reveal">
@@ -411,7 +296,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="compare" className="panel section reveal">
+      <section id="compare" className="panel section reveal compare-section">
         <div className="section-heading">
           <div>
             <span className="eyebrow">Outcome</span>
@@ -423,15 +308,7 @@ export default function LandingPage() {
           </p>
         </div>
 
-        <div className="compare-strip">
-          {compareCells.map((cell, index) => (
-            <article key={cell.title} className={`compare-cell reveal stagger-${index + 1}`}>
-              <h4>{cell.title}</h4>
-              <p>{cell.text}</p>
-              <strong>{cell.strong}</strong>
-            </article>
-          ))}
-        </div>
+        <LiveOutcomeSection cells={compareCells} />
       </section>
 
       <section className="panel cta-panel reveal">

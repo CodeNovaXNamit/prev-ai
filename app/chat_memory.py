@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.encryption import EncryptionManager
 from app.models import ChatMessageRecord
-from app.semantic_memory import SemanticMemoryService
 from app.utils import generate_id
+from app.utils.sanitizer import sanitize_text
 
 
 class ChatMemoryService:
@@ -19,30 +19,33 @@ class ChatMemoryService:
         self,
         session: Session,
         encryption_manager: EncryptionManager | None = None,
-        semantic_memory: SemanticMemoryService | None = None,
     ) -> None:
         self.session = session
         self.encryption_manager = encryption_manager or EncryptionManager()
-        self.semantic_memory = semantic_memory or SemanticMemoryService()
 
     def add_message(self, role: str, content: str) -> dict[str, Any]:
-        """Store a chat message."""
+        """Store a chat message after applying input sanitization."""
+        sanitized = sanitize_text(content) if role == "user" else None
+        stored_content = (sanitized.cleaned_text if sanitized is not None else content).strip()
+        if not stored_content:
+            stored_content = content.strip()
+
         message = ChatMessageRecord(
             id=generate_id(),
             role=role,
-            content_encrypted=self.encryption_manager.encrypt(content.strip()),
+            content_encrypted=self.encryption_manager.encrypt(stored_content),
+            is_system_log=bool(sanitized.is_system_log) if sanitized is not None else False,
         )
         self.session.add(message)
         self.session.commit()
         self.session.refresh(message)
-        if role == "user":
-            self.semantic_memory.index_user_prompt(message.id, content)
         return self._serialize(message)
 
-    def list_recent_messages(self, limit: int = 8) -> list[dict[str, Any]]:
-        """Return recent chat messages in chronological order."""
+    def list_recent_messages(self, limit: int = 5) -> list[dict[str, Any]]:
+        """Return recent non-log chat messages in chronological order."""
         rows = (
             self.session.query(ChatMessageRecord)
+            .filter(ChatMessageRecord.is_system_log.is_(False))
             .order_by(ChatMessageRecord.created_at.desc())
             .limit(limit)
             .all()
@@ -55,6 +58,7 @@ class ChatMemoryService:
             "id": row.id,
             "role": row.role,
             "content": self.encryption_manager.decrypt(row.content_encrypted),
+            "is_system_log": row.is_system_log,
             "created_at": row.created_at.isoformat(),
             "updated_at": row.updated_at.isoformat(),
         }

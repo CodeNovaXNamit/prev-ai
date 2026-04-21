@@ -46,7 +46,18 @@ class TaskManager:
         priority: str = "medium",
         completed: bool = False,
     ) -> dict[str, Any]:
-        """Create a new task."""
+        """Create a new task or refresh an existing task with the same title."""
+        normalized_title = self._normalize_text(title)
+        existing = self._find_task_by_title(normalized_title)
+        if existing is not None:
+            existing.description_encrypted = self.encryption_manager.encrypt(description.strip())
+            existing.due_date = due_date
+            existing.priority = priority
+            existing.completed = completed
+            self.session.commit()
+            self.session.refresh(existing)
+            return self._serialize(existing)
+
         task = TaskRecord(
             id=generate_id(),
             title_encrypted=self.encryption_manager.encrypt(title.strip()),
@@ -82,6 +93,17 @@ class TaskManager:
     def list_tasks(self) -> list[dict[str, Any]]:
         """Return all tasks."""
         tasks = self.session.query(TaskRecord).order_by(TaskRecord.updated_at.desc()).all()
+        return [self._serialize(task) for task in tasks]
+
+    def list_pending_tasks(self, limit: int = 5) -> list[dict[str, Any]]:
+        """Return only pending tasks."""
+        tasks = (
+            self.session.query(TaskRecord)
+            .filter(TaskRecord.completed.is_(False))
+            .order_by(TaskRecord.updated_at.desc())
+            .limit(limit)
+            .all()
+        )
         return [self._serialize(task) for task in tasks]
 
     def delete_task(self, task_id: str) -> bool:
@@ -169,6 +191,17 @@ class TaskManager:
             if needle in title or title in needle:
                 return task
 
+        return None
+
+    def _find_task_by_title(self, normalized_title: str) -> TaskRecord | None:
+        """Find an existing task row with the same normalized title."""
+        if not normalized_title:
+            return None
+        rows = self.session.query(TaskRecord).order_by(TaskRecord.updated_at.desc()).all()
+        for row in rows:
+            title = self._normalize_text(self.encryption_manager.decrypt(row.title_encrypted))
+            if title == normalized_title:
+                return row
         return None
 
     def _normalize_text(self, value: str) -> str:

@@ -72,6 +72,7 @@ class ChatMessageRecord(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     role: Mapped[str] = mapped_column(String(16))
     content_encrypted: Mapped[str] = mapped_column(Text())
+    is_system_log: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class UserMemoryRecord(TimestampMixin, Base):
@@ -82,6 +83,8 @@ class UserMemoryRecord(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     key: Mapped[str] = mapped_column(String(64), index=True)
     value_encrypted: Mapped[str] = mapped_column(Text())
+    importance: Mapped[int] = mapped_column(Integer, default=3)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class UserProfileRecord(TimestampMixin, Base):

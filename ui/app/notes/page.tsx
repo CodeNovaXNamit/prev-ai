@@ -1,5 +1,5 @@
-import { SummariesView } from "@/components/app/summaries-view";
+import { NotesView } from "@/components/app/notes-view";
 
 export default function NotesPage() {
-  return <SummariesView />;
+  return <NotesView />;
 }

@@ -33,6 +33,18 @@ def test_llm_generate_allows_call_specific_options() -> None:
     payload = mocked_post.call_args.kwargs["json"]
     assert payload["options"]["temperature"] == 0.0
     assert payload["options"]["num_predict"] == 80
+    assert "Primary Location: Nilokheri, Haryana, India." in payload["system"]
+    assert "Never assume the user is in Thailand" in payload["system"]
+
+
+def test_extraction_prompt_does_not_include_static_grounding() -> None:
+    engine = LocalLLMEngine(model_name="phi3", ollama_url="http://localhost:11434")
+
+    prompt = engine.get_extraction_prompt("my name is namit and i study at siet")
+
+    assert "USER_INPUT: my name is namit and i study at siet" in prompt
+    assert "Nilokheri" not in prompt
+    assert "Thailand" not in prompt
 
 
 def test_llm_generate_falls_back_without_network() -> None:
@@ -83,6 +95,14 @@ def test_chat_answers_tasks_from_local_context_when_ollama_is_offline() -> None:
     assert source == "fallback"
 
 
+def test_local_context_answers_simple_greeting_without_profile_echo() -> None:
+    engine = LocalLLMEngine(model_name="phi3", ollama_url="http://localhost:11434")
+
+    result = engine.answer_from_local_context("hi", {"profile_data": {"name": "Namit", "location": "Nilokheri"}})
+
+    assert result == "Hello. How can I help?"
+
+
 def test_summarizer_uses_extractive_fallback(session) -> None:
     engine = LocalLLMEngine()
 
@@ -127,15 +147,18 @@ def test_summarizer_uses_stricter_generation_options(session) -> None:
     engine = LocalLLMEngine()
     summarizer = NotesSummarizer(session=session, llm_engine=engine)
 
-    with patch.object(engine, "generate", return_value="- Concise summary") as mocked_generate:
+    with patch.object(engine, "generate", side_effect=["- Chunk summary", "- Final summary"]) as mocked_generate:
         summarizer.summarize(
             title="Lecture Notes",
             note_text="Consensus improves resilience. Leader election coordinates writes. Failure detection matters.",
         )
 
-    assert mocked_generate.call_args.kwargs["options"]["temperature"] == 0.0
-    assert mocked_generate.call_args.kwargs["options"]["num_predict"] == 120
-    assert mocked_generate.call_args.kwargs["options"]["repeat_penalty"] == 1.15
+    first_call = mocked_generate.call_args_list[0]
+    second_call = mocked_generate.call_args_list[-1]
+    assert first_call.kwargs["options"]["temperature"] == 0.0
+    assert first_call.kwargs["options"]["num_predict"] == 100
+    assert second_call.kwargs["options"]["num_predict"] == 160
+    assert second_call.kwargs["options"]["repeat_penalty"] == 1.15
 
 
 def test_local_context_answers_specific_appointment_query() -> None:
@@ -173,7 +196,8 @@ def test_chat_prompt_filters_unrelated_context_for_general_query() -> None:
         "events": [{"title": "Advisor meeting", "start_time": "2026-04-16T10:00:00", "end_time": "2026-04-16T10:30:00", "location": "Lab 2"}],
         "notes": [{"title": "LM Studio", "summary": "- Some summary"}],
         "recent_messages": [{"role": "user", "content": "my name is namit"}],
-        "remembered_facts": [{"key": "location", "value": "Faridabad"}],
+        "profile_data": {"name": "Namit", "location": "Faridabad"},
+        "dynamic_facts": [{"text": "The user is from Faridabad.", "importance": 4}],
     }
 
     with patch.object(engine, "is_available", return_value=True), patch.object(engine, "generate", return_value="New Delhi") as mocked_generate:
@@ -185,23 +209,37 @@ def test_chat_prompt_filters_unrelated_context_for_general_query() -> None:
     assert "Tasks:" not in prompt
     assert "Events:" not in prompt
     assert "Notes:" not in prompt
-    assert "Recent chat memory:" not in prompt
-    assert "Remembered user facts:" not in prompt
+    assert "### RECENT CONVERSATION" in prompt
+    assert "### IDENTITY" in prompt
+    assert "### STATIC GROUNDING (Source of Truth)" in prompt
+    assert "Faridabad" in prompt
+
+
+def test_chat_prompt_omits_empty_memory_and_history_sections() -> None:
+    engine = LocalLLMEngine(model_name="phi3", ollama_url="http://localhost:11434")
+
+    with patch.object(engine, "is_available", return_value=True), patch.object(engine, "generate", return_value="Hello") as mocked_generate:
+        engine.chat("hello", context={"profile_data": {}})
+
+    prompt = mocked_generate.call_args.args[0]
+    assert "### RELEVANT MEMORIES" not in prompt
+    assert "### RECENT CONVERSATION" not in prompt
 
 
 def test_chat_prompt_keeps_history_only_for_history_queries() -> None:
     engine = LocalLLMEngine(model_name="phi3", ollama_url="http://localhost:11434")
     context = {
         "recent_messages": [{"role": "user", "content": "remember that my favorite stack is python"}],
-        "remembered_facts": [{"key": "name", "value": "Namit"}],
+        "profile_data": {"name": "Namit"},
+        "dynamic_facts": [{"text": "The user's favorite stack is Python.", "importance": 3}],
     }
 
     with patch.object(engine, "is_available", return_value=True), patch.object(engine, "generate", return_value="Recent chat memory") as mocked_generate:
         engine.chat("what do you remember from earlier", context=context)
 
     prompt = mocked_generate.call_args.args[0]
-    assert "Recent chat memory:" in prompt
-    assert "Remembered user facts:" not in prompt
+    assert "### RECENT CONVERSATION" in prompt
+    assert "favorite stack is Python" in prompt
 
 
 def test_chat_prompt_keeps_project_context_for_project_queries() -> None:
@@ -215,5 +253,28 @@ def test_chat_prompt_keeps_project_context_for_project_queries() -> None:
         engine.chat("tell me about the smart hvac project", context=context)
 
     prompt = mocked_generate.call_args.args[0]
-    assert "Project:" in prompt
-    assert "Semantic notes:" in prompt
+    assert "### PROJECT CONTEXT" in prompt
+    assert "### RELATED NOTES" in prompt
+
+
+def test_summarizer_discards_noisy_chunks_before_master_summary(session) -> None:
+    engine = LocalLLMEngine()
+    summarizer = NotesSummarizer(session=session, llm_engine=engine)
+    noisy = "\n".join(
+        [
+            "FOO=bar",
+            "BAR=baz",
+            "HELLO=world",
+            "PATH=/tmp",
+            "HOME=/tmp",
+            "TOKEN=abc",
+        ]
+    )
+    clean = "Privacy preserving AI can run locally on a laptop. Students can review notes and tasks offline."
+
+    with patch.object(engine, "generate", side_effect=["- Clean chunk", "- Final summary"]) as mocked_generate:
+        summarizer.summarize(title="Mixed", note_text=f"{clean}\n\n{noisy}")
+
+    first_prompt = mocked_generate.call_args_list[0].args[0]
+    assert "Privacy preserving AI" in first_prompt
+    assert "TOKEN=abc" not in first_prompt

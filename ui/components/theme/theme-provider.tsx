@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 type Theme = "light" | "dark";
 
@@ -27,6 +27,24 @@ function resolveInitialTheme(): Theme {
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>("light");
   const [ready, setReady] = useState(false);
+  const transitionTimerRef = useRef<number | null>(null);
+
+  function beginThemeTransition() {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    document.documentElement.dataset.themeTransition = "true";
+
+    if (transitionTimerRef.current !== null) {
+      window.clearTimeout(transitionTimerRef.current);
+    }
+
+    transitionTimerRef.current = window.setTimeout(() => {
+      delete document.documentElement.dataset.themeTransition;
+      transitionTimerRef.current = null;
+    }, 460);
+  }
 
   useEffect(() => {
     const nextTheme = resolveInitialTheme();
@@ -43,12 +61,22 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     window.localStorage.setItem("privai-theme", theme);
   }, [ready, theme]);
 
+  useEffect(() => {
+    return () => {
+      if (transitionTimerRef.current !== null) {
+        window.clearTimeout(transitionTimerRef.current);
+      }
+    };
+  }, []);
+
   return (
     <ThemeContext.Provider
       value={{
         theme,
-        toggleTheme: () =>
-          setTheme((current) => (current === "dark" ? "light" : "dark")),
+        toggleTheme: () => {
+          beginThemeTransition();
+          setTheme((current) => (current === "dark" ? "light" : "dark"));
+        },
       }}
     >
       {children}

@@ -1,4 +1,13 @@
+import { useId } from "react";
+
 export function BrandLogo({ className = "" }: { className?: string }) {
+  const id = useId().replace(/:/g, "");
+  const shieldGradient = `privaiShield-${id}`;
+  const shieldEdge = `privaiShieldEdge-${id}`;
+  const coreGradient = `privaiCore-${id}`;
+  const orbitGradient = `privaiOrbit-${id}`;
+  const glowGradient = `privaiGlow-${id}`;
+
   return (
     <svg
       viewBox="0 0 96 96"
@@ -8,49 +17,72 @@ export function BrandLogo({ className = "" }: { className?: string }) {
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
-        <linearGradient id="privaiCore" x1="20" y1="12" x2="74" y2="86" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#18F0FF" />
-          <stop offset="1" stopColor="#274EAF" />
+        <linearGradient id={shieldGradient} x1="18" y1="12" x2="72" y2="88" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FFE3AE" />
+          <stop offset="0.32" stopColor="#F4B45D" />
+          <stop offset="0.7" stopColor="#B66824" />
+          <stop offset="1" stopColor="#FFCF93" />
         </linearGradient>
-        <linearGradient id="privaiFace" x1="18" y1="14" x2="48" y2="58" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#FFFFFF" />
-          <stop offset="1" stopColor="#BFD3DE" />
+        <linearGradient id={shieldEdge} x1="22" y1="18" x2="65" y2="82" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FFF6E0" />
+          <stop offset="0.45" stopColor="#E5A24A" />
+          <stop offset="1" stopColor="#7E4016" />
         </linearGradient>
+        <radialGradient id={coreGradient} cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(49 42) rotate(90) scale(28)">
+          <stop stopColor="#FFF4EC" />
+          <stop offset="0.45" stopColor="#F7C5A3" />
+          <stop offset="1" stopColor="#6E3314" />
+        </radialGradient>
+        <linearGradient id={orbitGradient} x1="6" y1="54" x2="90" y2="46" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#F4B962" />
+          <stop offset="0.5" stopColor="#FFF6EE" />
+          <stop offset="1" stopColor="#F0BA72" />
+        </linearGradient>
+        <radialGradient id={glowGradient} cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(49 41) rotate(90) scale(24)">
+          <stop stopColor="#FFF8F0" stopOpacity="0.96" />
+          <stop offset="0.55" stopColor="#FFD5B7" stopOpacity="0.54" />
+          <stop offset="1" stopColor="#FFD5B7" stopOpacity="0" />
+        </radialGradient>
       </defs>
 
+      <ellipse cx="49" cy="41" rx="22" ry="20" fill={`url(#${glowGradient})`} />
+
       <path
-        d="M25 16c8.8-5.5 19.9-5.2 28 0l-6 18-10 9-8 20-13-4V33c0-7.2 3.5-13.4 9-17z"
-        fill="url(#privaiFace)"
+        d="M48.5 10.5L78 24v23.6c0 18.5-11.8 31.4-29.5 38.4C30.8 79 19 66.1 19 47.6V24l29.5-13.5Z"
+        fill={`url(#${shieldGradient})`}
       />
       <path
-        d="M50 17c12.5 0 24 8.1 28.6 20.4 2 5.2 2.5 11 1.6 17.4L72 84l-10-8-7 6-3-9-7 2 2-10-8-4 3-13-5-6 8-8 5-17z"
-        fill="url(#privaiCore)"
+        d="M48.5 17.4L72.2 28v18.8c0 14.5-8.9 24.5-23.7 30.6C33.7 71.3 24.8 61.3 24.8 46.8V28l23.7-10.6Z"
+        fill="#5A260F"
+        stroke={`url(#${shieldEdge})`}
+        strokeWidth="3"
       />
-      <path d="M18 60l14 4 9-20 11-10 4-13" stroke="#111827" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M16 33v26" stroke="#111827" strokeWidth="2.6" strokeLinecap="round" />
-      <path d="M28 47l13 2" stroke="#111827" strokeWidth="2.4" strokeLinecap="round" />
-      <path d="M42 48l4 13" stroke="#111827" strokeWidth="2.4" strokeLinecap="round" />
-      <path d="M56 33l17 13" stroke="#7EE7FF" strokeWidth="2.4" strokeLinecap="round" />
-      <path d="M58 44l18 1" stroke="#7EE7FF" strokeWidth="2.4" strokeLinecap="round" />
-      <path d="M57 54l15-11" stroke="#7EE7FF" strokeWidth="2.4" strokeLinecap="round" />
-      <path d="M55 61l10-16" stroke="#7EE7FF" strokeWidth="2.4" strokeLinecap="round" />
-      <path d="M60 68l14-9" stroke="#5AAEFF" strokeWidth="2.4" strokeLinecap="round" />
-      <path d="M61 77l10-17" stroke="#4979E4" strokeWidth="2.4" strokeLinecap="round" />
-      <path d="M51 79l13-11" stroke="#355FC7" strokeWidth="2.4" strokeLinecap="round" />
-      <path d="M65 75l13 9" stroke="#274EAF" strokeWidth="2.6" strokeLinecap="round" />
-      <path d="M59 76l2 13" stroke="#274EAF" strokeWidth="2.6" strokeLinecap="round" />
-      <path d="M68 76l-7 13" stroke="#274EAF" strokeWidth="2.6" strokeLinecap="round" />
-      <circle cx="56" cy="60" r="8.5" stroke="#0F172A" strokeWidth="3.2" />
-      <circle cx="56" cy="60" r="2.8" fill="#0F172A" />
-      <circle cx="69" cy="44" r="2.7" fill="#7EE7FF" />
-      <circle cx="76" cy="59" r="2.5" fill="#59B6FF" />
-      <circle cx="82" cy="34" r="4.1" fill="#18F0FF" />
-      <circle cx="88" cy="47" r="2.3" fill="#18F0FF" />
-      <circle cx="86" cy="60" r="3" fill="#355FC7" />
-      <circle cx="40" cy="30" r="1.9" fill="#0F172A" />
-      <circle cx="31" cy="49" r="1.8" fill="#0F172A" />
-      <path d="M20 60l12 4-9 9H13z" fill="#0F172A" />
-      <path d="M32 33l-8-14c5.8-4 13.7-5.1 21.3-2.8z" fill="#FFFFFF" />
+
+      <circle cx="48.5" cy="42.2" r="18.8" fill={`url(#${coreGradient})`} />
+
+      <path
+        d="M48.5 30.7C44 30.7 40.6 34 40.6 38.4v2.3h-1.7c-1.8 0-3.2 1.4-3.2 3.2v11.6c0 1.8 1.4 3.2 3.2 3.2h19.2c1.8 0 3.2-1.4 3.2-3.2V43.9c0-1.8-1.4-3.2-3.2-3.2h-1.7v-2.3c0-4.4-3.4-7.7-7.9-7.7Zm0 4.1c2.1 0 3.7 1.5 3.7 3.6v2.3h-7.4v-2.3c0-2.1 1.6-3.6 3.7-3.6Z"
+        fill="#7E3416"
+      />
+
+      <path
+        d="M8 56.3c11.4-5.7 24-7.9 41.6-7.9 16.1 0 28.1 1.7 38.4 6"
+        stroke={`url(#${orbitGradient})`}
+        strokeWidth="5.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M12 57.8c12-8.7 23.9-12.5 37.8-12.5 16.5 0 27.7 3.8 34.5 10.2"
+        stroke="#FFF6EE"
+        strokeOpacity="0.78"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+      />
+
+      <circle cx="34.2" cy="29.2" r="1.9" fill="#FFF5E9" />
+      <circle cx="62.9" cy="26.9" r="2.3" fill="#FFE6C9" />
+      <circle cx="66.1" cy="41.5" r="1.8" fill="#FFF7F1" />
+      <circle cx="33.8" cy="43.9" r="1.8" fill="#FFD8B9" />
     </svg>
   );
 }

@@ -23,6 +23,18 @@ def test_database_stores_encrypted_task_fields(session) -> None:
     assert "Keep it private" not in row.description_encrypted
 
 
+def test_task_add_deduplicates_and_reopens_existing_completed_task(session) -> None:
+    manager = TaskManager(session)
+
+    first = manager.add_task(title="Homework", description="Old", completed=True)
+    second = manager.add_task(title="Homework", description="Fresh", completed=False)
+
+    assert first["id"] == second["id"]
+    assert second["completed"] is False
+    assert second["description"] == "Fresh"
+    assert len(manager.list_tasks()) == 1
+
+
 def test_database_delete_record(session) -> None:
     scheduler = SchedulerManager(session)
     event = scheduler.add_event(

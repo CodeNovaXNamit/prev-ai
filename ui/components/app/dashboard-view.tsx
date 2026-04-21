@@ -189,8 +189,8 @@ export function DashboardView() {
               </div>
             </div>
             <div className="timeline-list">
-              {(analytics?.timeline ?? []).map((entry) => (
-                <div key={`${entry.title}-${entry.time}`} className="timeline-item">
+              {(analytics?.timeline ?? []).map((entry, index) => (
+                <div key={`${entry.title}-${entry.time}-${entry.status}-${index}`} className="timeline-item">
                   <div>
                     <strong>{entry.title}</strong>
                     <p className="muted-text">{entry.status}</p>
@@ -224,7 +224,7 @@ export function DashboardView() {
               <div className="note-summary-box">
                 <strong>Next event</strong>
                 <p>
-                  {events[0].title} · {formatRelativeDate(events[0].start_time)}
+                  {events[0].title} - {formatRelativeDate(events[0].start_time)}
                 </p>
               </div>
             ) : null}

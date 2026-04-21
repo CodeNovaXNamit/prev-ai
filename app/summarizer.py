@@ -13,6 +13,7 @@ from app.llm_engine import LocalLLMEngine
 from app.models import NoteRecord
 from app.semantic_memory import SemanticMemoryService
 from app.utils import generate_id
+from app.utils.sanitizer import count_environment_variables, count_shell_commands
 
 
 class NotesSummarizer:
@@ -57,9 +58,15 @@ class NotesSummarizer:
         self.semantic_memory.index_note(note.id, note_text, None, project_id=project_id)
         return self._serialize(note)
 
-    def summarize(self, title: str, note_text: str, project_id: str | None = None) -> dict[str, Any]:
+    def summarize(
+        self,
+        title: str,
+        note_text: str,
+        project_id: str | None = None,
+        profile_data: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Summarize note text using Ollama or a deterministic local fallback."""
-        summary = self._generate_summary(note_text)
+        summary = self._generate_summary(note_text, profile_data=profile_data or {})
         note = NoteRecord(
             id=generate_id(),
             title_encrypted=self.encryption_manager.encrypt((title.strip() or "Untitled note")),
@@ -87,37 +94,133 @@ class NotesSummarizer:
         self.session.commit()
         return True
 
-    def _generate_summary(self, note_text: str) -> str:
-        """Generate a concise summary locally."""
-        prompt = (
-            "Summarize the following note in exactly 3 short bullet points. "
-            "Use only information present in the note. "
-            "Do not include shell commands, troubleshooting steps, unrelated prior conversation, or invented details. "
-            "Keep the output readable for a student or teammate.\n\n"
-            f"{note_text}"
+    def _generate_summary(self, note_text: str, profile_data: dict[str, str]) -> str:
+        """Generate a concise summary locally using chunk scrubbing and recursive summarization."""
+        clean_chunks = self._prepare_clean_chunks(note_text)
+        if not clean_chunks:
+            return self._extractive_summary(note_text)
+
+        chunk_summaries = [self._summarize_chunk(chunk) for chunk in clean_chunks]
+        combined = "\n".join(summary for summary in chunk_summaries if summary.strip())
+        if not combined.strip():
+            return self._extractive_summary(" ".join(clean_chunks))
+
+        final_prompt = (
+            f"{self._build_identity_instruction(profile_data)}\n"
+            "Create a readable master summary in exactly 3 short bullet points. "
+            "Use only the chunk summaries below. "
+            "Ignore shell commands, logs, stack traces, and environment details.\n\n"
+            f"{combined}"
         )
         candidate = self.llm_engine.generate(
-            prompt,
+            final_prompt,
             system_prompt=(
-                "You write compact note summaries. "
+                "You write compact note summaries for a student. "
                 "Return only 3 bullet points. "
-                "Never mention prior chat context, commands, filesystem operations, Git, or debugging instructions "
-                "unless they appear in the note itself."
+                "Highlight the most relevant concepts and keep the output readable. "
+                "CRITICAL: Do not include meta-commentary about your own capabilities, privacy policies, or internal assumptions. "
+                "Do not use phrases like 'I'll remember that' or 'As an on-device assistant'."
             ),
             options={
                 "temperature": 0.0,
                 "top_p": 0.75,
-                "num_predict": 120,
+                "num_predict": 160,
                 "repeat_penalty": 1.15,
             },
         )
         if (
             "Local summary fallback" in candidate
             or "Ollama is not running" in candidate
-            or self._looks_corrupted_summary(note_text, candidate)
+            or self._looks_corrupted_summary(combined, candidate)
         ):
-            return self._extractive_summary(note_text)
+            return self._extractive_summary(combined)
         return self._normalize_summary(candidate)
+
+    def _prepare_clean_chunks(self, note_text: str) -> list[str]:
+        """Split text and discard noisy chunks before summarization."""
+        paragraphs = [part.strip() for part in re.split(r"\n\s*\n", note_text) if part.strip()]
+        chunks: list[str] = []
+        for paragraph in paragraphs or [note_text]:
+            words = paragraph.split()
+            if len(words) <= 500:
+                chunks.append(paragraph)
+                continue
+
+            current: list[str] = []
+            for word in words:
+                current.append(word)
+                if len(current) >= 500:
+                    chunks.append(" ".join(current))
+                    current = []
+            if current:
+                chunks.append(" ".join(current))
+
+        clean_chunks: list[str] = []
+        for chunk in chunks or [note_text]:
+            if self._chunk_is_noise(chunk):
+                continue
+            clean_chunks.append(chunk.strip())
+        return clean_chunks
+
+    def _chunk_is_noise(self, chunk: str) -> bool:
+        """Identify chunks dominated by environment variables or shell commands."""
+        if count_environment_variables(chunk) > 5:
+            return True
+        if count_shell_commands(chunk) > 5:
+            return True
+        lowered = chunk.lower()
+        return sum(1 for term in self.SUSPICIOUS_TERMS if term in lowered) >= 3
+
+    def _summarize_chunk(self, chunk: str) -> str:
+        """Summarize one cleaned chunk."""
+        prompt = (
+            "Summarize the following clean text chunk in 2 short bullet points. "
+            "Use only information in the chunk.\n\n"
+            f"{chunk}"
+        )
+        candidate = self.llm_engine.generate(
+            prompt,
+            system_prompt=(
+                "Summarize the chunk faithfully. "
+                "Return only bullet points and avoid any shell, Git, or debugging advice. "
+                "CRITICAL: Do not include meta-commentary about your own capabilities, privacy policies, or internal assumptions. "
+                "Do not use phrases like 'I'll remember that' or 'As an on-device assistant'."
+            ),
+            options={
+                "temperature": 0.0,
+                "top_p": 0.75,
+                "num_predict": 100,
+                "repeat_penalty": 1.15,
+            },
+        )
+        if (
+            "Local summary fallback" in candidate
+            or "Ollama is not running" in candidate
+            or self._looks_corrupted_summary(chunk, candidate)
+        ):
+            return self._extractive_summary(chunk)
+        return self._normalize_summary(candidate)
+
+    def _build_identity_instruction(self, profile_data: dict[str, str]) -> str:
+        """Build the personalization line for the final summary prompt."""
+        name = profile_data.get("name", "the user")
+        college = profile_data.get("college")
+        degree = profile_data.get("degree")
+        interests = profile_data.get("interests") or profile_data.get("favorite_topic") or profile_data.get("favorite_language")
+
+        details: list[str] = []
+        if degree:
+            details.append(degree)
+        if college:
+            details.append(f"at {college}")
+        descriptor = " ".join(details).strip()
+        if descriptor:
+            instruction = f"Summarize this document for {name}, who studies {descriptor}."
+        else:
+            instruction = f"Summarize this document for {name}."
+        if interests:
+            instruction += f" Highlight parts relevant to the user's interest in {interests}."
+        return instruction
 
     def _extractive_summary(self, note_text: str) -> str:
         """Create a simple extractive summary without a model."""

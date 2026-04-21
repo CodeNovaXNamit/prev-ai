@@ -87,11 +87,11 @@ def get_analytics_service(session: DbSession) -> AnalyticsService:
 
 
 def get_chat_memory_service(session: DbSession) -> ChatMemoryService:
-    return ChatMemoryService(session, semantic_memory=SemanticMemoryService())
+    return ChatMemoryService(session)
 
 
 def get_user_memory_service(session: DbSession) -> UserMemoryService:
-    return UserMemoryService(session)
+    return UserMemoryService(session, llm_engine=llm_engine, semantic_memory=SemanticMemoryService())
 
 
 def get_ground_truth_service(session: DbSession) -> GroundTruthService:
@@ -164,6 +164,9 @@ def chat(
 ) -> ChatResponse:
     """Return an assistant response."""
     memory.add_message("user", request.message)
+    captured_memories = user_memory.capture_memories_from_message(request.message)
+    ground_truth.sync_profile_memories(captured_memories)
+
     profile_answer = ground_truth.answer_profile_query(request.message)
     if profile_answer is not None:
         analytics.track("chat", "memory_recalled", {"kind": "profile_sql"})
@@ -188,8 +191,6 @@ def chat(
             completed_tasks=[],
         )
 
-    captured_memories = user_memory.capture_memories_from_message(request.message)
-    ground_truth.sync_profile_memories(captured_memories)
     created_tasks = tasks.create_tasks_from_message(request.message)
     completed_tasks = tasks.complete_tasks_from_message(request.message)
     created_events = scheduler.create_events_from_message(request.message)
@@ -202,11 +203,12 @@ def chat(
             project_id=project["project_id"] if project else None,
         )
     context = {
-        "tasks": tasks.list_tasks()[:5],
+        "tasks": tasks.list_pending_tasks(limit=5),
         "events": scheduler.list_events()[:5],
         "notes": notes.list_notes()[:5],
-        "recent_messages": memory.list_recent_messages(limit=8),
-        "remembered_facts": ground_truth.list_profile()[:5],
+        "recent_messages": memory.list_recent_messages(limit=5),
+        "profile_data": {item["attribute"]: item["value"] for item in ground_truth.list_profile()},
+        "dynamic_facts": user_memory.get_relevant_facts(request.message, limit=4),
         "semantic_notes": semantic_notes,
         "project": project,
         "intent": intent,
@@ -264,7 +266,7 @@ def chat_history(
 @app.get("/memories")
 def list_memories(
     user_memory: Annotated[UserMemoryService, Depends(get_user_memory_service)],
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """List saved personal facts remembered locally for the user."""
     return user_memory.list_memories()
 
@@ -467,6 +469,7 @@ def summarize_note(
         request.title,
         request.note_text,
         project_id=request.project_id or (project["project_id"] if project else None),
+        profile_data={item["attribute"]: item["value"] for item in ground_truth.list_profile()},
     )
     analytics.track("summarizer", "summary_generated", {"note_id": record["id"]})
     return record

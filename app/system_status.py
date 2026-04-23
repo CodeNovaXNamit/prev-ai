@@ -22,12 +22,14 @@ LATEST_TEST_RESULTS = [
     ("test_database_delete_record", "passed", "Delete flow verified"),
     ("test_encrypt_and_decrypt_roundtrip", "passed", "Fernet roundtrip verified"),
     ("test_invalid_key_cannot_decrypt", "passed", "Invalid-key protection verified"),
-    ("test_llm_generate_uses_remote_response_when_available", "passed", "Ollama response handling verified"),
+    ("test_llm_generate_uses_remote_response_when_available", "passed", "Model runner response handling verified"),
     ("test_llm_generate_falls_back_without_network", "passed", "Offline fallback verified"),
-    ("test_chat_answers_schedule_from_local_context_when_ollama_is_offline", "passed", "Schedule fallback verified"),
-    ("test_chat_answers_tasks_from_local_context_when_ollama_is_offline", "passed", "Task fallback verified"),
+    ("test_llm_is_available_accepts_normalized_model_aliases", "passed", "Model alias normalization verified"),
+    ("test_chat_answers_schedule_from_local_context_when_runner_is_offline", "passed", "Schedule fallback verified"),
+    ("test_chat_answers_tasks_from_local_context_when_runner_is_offline", "passed", "Task fallback verified"),
     ("test_local_context_answers_specific_appointment_query", "passed", "Date-filtered schedule answer verified"),
     ("test_summarizer_uses_extractive_fallback", "passed", "Summary fallback verified"),
+    ("test_build_note_query_filter_uses_and_operator_for_project_scope", "passed", "Project note filter verified"),
 ]
 
 
@@ -47,7 +49,7 @@ class SystemStatusService:
     ) -> SystemStatusResponse:
         """Return the dashboard payload."""
         database_connected = self._database_connected()
-        ollama_available = self.llm_engine.is_available()
+        model_runner_available = self.llm_engine.is_available()
         checks = [
             SystemCheckResult(
                 name="database",
@@ -55,9 +57,9 @@ class SystemStatusService:
                 detail="Database connection is active" if database_connected else "Database connection failed",
             ),
             SystemCheckResult(
-                name="ollama",
-                status="ok" if ollama_available else "degraded",
-                detail="Local model is reachable" if ollama_available else "Using offline fallback mode",
+                name="model-runner",
+                status="ok" if model_runner_available else "degraded",
+                detail="Local model runner is reachable" if model_runner_available else "Using offline fallback mode",
             ),
             SystemCheckResult(
                 name="encryption",
@@ -79,7 +81,7 @@ class SystemStatusService:
             health=HealthStatus(
                 app_name=self.settings.app_name,
                 offline_mode=not self.settings.allow_external_network,
-                ollama_available=ollama_available,
+                model_runner_available=model_runner_available,
                 database_url=self.settings.database_url,
                 active_model=self.settings.model_name,
             ),

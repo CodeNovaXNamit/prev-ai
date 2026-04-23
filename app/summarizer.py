@@ -65,7 +65,7 @@ class NotesSummarizer:
         project_id: str | None = None,
         profile_data: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Summarize note text using Ollama or a deterministic local fallback."""
+        """Summarize note text using the model runner or a deterministic local fallback."""
         summary = self._generate_summary(note_text, profile_data=profile_data or {})
         note = NoteRecord(
             id=generate_id(),
@@ -130,7 +130,7 @@ class NotesSummarizer:
         )
         if (
             "Local summary fallback" in candidate
-            or "Ollama is not running" in candidate
+            or "The local model runner is unavailable" in candidate
             or self._looks_corrupted_summary(combined, candidate)
         ):
             return self._extractive_summary(combined)
@@ -195,7 +195,7 @@ class NotesSummarizer:
         )
         if (
             "Local summary fallback" in candidate
-            or "Ollama is not running" in candidate
+            or "The local model runner is unavailable" in candidate
             or self._looks_corrupted_summary(chunk, candidate)
         ):
             return self._extractive_summary(chunk)

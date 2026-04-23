@@ -36,7 +36,7 @@ export type Note = {
 export type HealthStatus = {
   app_name: string;
   offline_mode: boolean;
-  ollama_available: boolean;
+  model_runner_available: boolean;
   database_url: string;
   active_model: string;
 };
@@ -70,7 +70,7 @@ export type AnalyticsPayload = {
   scheduled_events: number;
   weekly_activity: number[];
   completion_series: number[];
-  timeline: Array<{ title: string; time: string; status: string }>;
+  timeline: Array<{ id: string; title: string; time: string; status: string }>;
   preferred_feature: string;
 };
 

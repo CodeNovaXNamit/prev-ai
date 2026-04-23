@@ -25,7 +25,7 @@ export type PanelKey =
 const panelMap: Record<PanelKey, { title: string; description: string }> = {
   chat: {
     title: "Chat Assistant",
-    description: "Live local-first chat routed through FastAPI and your Ollama Phi-3 runtime.",
+    description: "Live local-first chat routed through FastAPI and your Phi-3 model runner.",
   },
   notes: {
     title: "Notes",

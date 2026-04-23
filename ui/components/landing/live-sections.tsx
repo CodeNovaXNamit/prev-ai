@@ -218,7 +218,7 @@ export function LiveMetricsSection() {
         <div className="terminal-body">
           <div className="terminal-line">
             <span className="terminal-prompt">$</span>
-            <span>docker compose up -d mysql backend frontend</span>
+            <span>docker compose up -d mysql phi3-runner backend frontend</span>
           </div>
           <div className="terminal-line">
             <span className="terminal-prompt">&gt;</span>
@@ -234,7 +234,7 @@ export function LiveMetricsSection() {
           </div>
           <div className="terminal-line">
             <span className="terminal-prompt">&gt;</span>
-            <span>Ollama model reachable through the backend status checks</span>
+            <span>Phi-3 runner reachable through the backend status checks</span>
           </div>
           <div className="terminal-line terminal-stream">
             <span className="terminal-prompt">*</span>
@@ -265,7 +265,7 @@ export function LiveArchitectureSection() {
       text: "Routes requests through local services.",
     },
     {
-      title: "Ollama / MySQL",
+      title: "Model runner / MySQL",
       text: "Generate locally or persist locally.",
     },
   ];
@@ -289,7 +289,7 @@ export function LiveArchitectureSection() {
           <li>The frontend calls FastAPI only, never the database directly.</li>
           <li>Backend routes still own validation, orchestration, and encryption boundaries.</li>
           <li>MySQL persists tasks, notes, events, and behavior analytics.</li>
-          <li>Ollama serves the local Phi-3 model for chat and summaries.</li>
+          <li>The local model runner serves the Phi-3 GGUF model for chat and summaries.</li>
           <li>Docker still starts the whole stack with aligned ports and environment values.</li>
         </ul>
         <div className="story-signal-strip" aria-hidden="true">

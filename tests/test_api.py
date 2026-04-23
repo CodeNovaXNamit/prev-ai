@@ -56,6 +56,7 @@ def test_task_event_note_and_analytics_flow(client) -> None:
     assert payload["saved_notes"] == 2
     assert payload["scheduled_events"] == 1
     assert payload["sessions"] >= 4
+    assert all(item["id"] for item in payload["timeline"])
 
 
 def test_chat_endpoint_uses_fallback_context(client) -> None:

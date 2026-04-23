@@ -70,6 +70,7 @@ class AnalyticsService:
                 created_at = created_at.replace(tzinfo=timezone.utc)
             timeline.append(
                 {
+                    "id": f"behavior-{item.id}",
                     "title": f"{item.feature.title()} {item.action.replace('_', ' ')}",
                     "time": created_at.astimezone(timezone.utc).strftime("%H:%M"),
                     "status": "tracked",
@@ -98,7 +99,12 @@ class AnalyticsService:
             "weekly_activity": weekly_activity,
             "completion_series": completion_series,
             "timeline": timeline or [
-                {"title": "Workspace initialized", "time": "00:00", "status": "ready"}
+                {
+                    "id": "workspace-initialized",
+                    "title": "Workspace initialized",
+                    "time": "00:00",
+                    "status": "ready",
+                }
             ],
             "preferred_feature": preferred_feature,
         }

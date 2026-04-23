@@ -10,7 +10,7 @@ Install these first:
 
 - Git
 - Docker Desktop
-- Ollama
+- A Phi-3 GGUF model file
 
 If you want to run without Docker, also install:
 
@@ -23,7 +23,7 @@ Make sure these ports are free:
 - 3000 for frontend
 - 8000 for backend
 - 3306 for MySQL
-- 11434 for Ollama
+- 11435 for the Phi-3 runner
 
 ==================================================
 2. Clone the project
@@ -58,19 +58,16 @@ Important:
 - Each teammate should keep their own local .env
 
 ==================================================
-4. Start Ollama and pull the model
+4. Place the Phi-3 GGUF model
 ==================================================
 
-Run:
+Create this path if it does not exist:
 
-ollama serve
+models\1\
 
-In another terminal:
+Then place your GGUF file there, for example:
 
-ollama pull phi3
-ollama list
-
-You should see phi3 installed.
+models\1\Phi-3-mini-4k-instruct-q4.gguf
 
 ==================================================
 5. Run with Docker (recommended)
@@ -100,8 +97,6 @@ Requirements:
 Run:
 
 .\scripts\setup.ps1
-ollama serve
-ollama pull phi3
 .\scripts\run.ps1
 
 ==================================================
@@ -110,8 +105,7 @@ ollama pull phi3
 
 - .env exists
 - ENCRYPTION_KEY is set
-- Ollama is running
-- phi3 is installed in Ollama
+- The GGUF model exists in models\1\
 - Docker Desktop is running if using Docker
 - MySQL is running if using local non-Docker mode
 
@@ -138,13 +132,13 @@ If localhost:3000 shows old UI:
 - run docker compose down
 - run docker compose up --build
 
-If Ollama-related features do not work:
+If model-runner-related features do not work:
 
-- check ollama serve is running
-- check ollama list contains phi3
+- check the GGUF model exists in models\1\
+- check MODEL_RUNNER_URL in .env
+- check docker compose logs phi3-runner
 
 If backend cannot connect to DB in local mode:
 
 - make sure MySQL is running
 - make sure DATABASE_URL in .env is correct
-

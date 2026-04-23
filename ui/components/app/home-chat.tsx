@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { WorkspaceShell } from "@/components/app/workspace-shell";
-import { ChatResponse, apiRequest } from "@/lib/api";
+import { ChatResponse, HealthStatus, apiRequest } from "@/lib/api";
 
 type Message = {
   id: string;
@@ -14,12 +14,19 @@ type Message = {
 
 export function HomeChat() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<{
+    label: string;
+    detail: string;
+  }>({
+    label: "Checking local backend",
+    detail: "Waiting for /health",
+  });
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
       role: "assistant",
       text: "Ask me something. I can save tasks, summarize notes, manage events, and keep the workflow fully local.",
-      meta: "Local model ready - Phi-3 via Ollama",
+      meta: "Checking local backend",
     },
   ]);
   const [value, setValue] = useState("");
@@ -28,6 +35,33 @@ export function HomeChat() {
   const [alerts, setAlerts] = useState<string[]>([]);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const loadRuntimeStatus = async () => {
+    try {
+      const health = await apiRequest<HealthStatus>("/health");
+      if (health.model_runner_available) {
+        setRuntimeStatus({
+          label: `Model online - ${health.active_model}`,
+          detail: "Backend and runner responding",
+        });
+        return;
+      }
+
+      setRuntimeStatus({
+        label: "Backend online - model fallback",
+        detail: "Runner unavailable, local fallback replies only",
+      });
+    } catch {
+      setRuntimeStatus({
+        label: "Backend offline",
+        detail: "Start the FastAPI backend on :8000",
+      });
+    }
+  };
+
+  useEffect(() => {
+    void loadRuntimeStatus();
+  }, []);
 
   const sendMessage = async () => {
     const trimmed = value.trim();
@@ -79,6 +113,7 @@ export function HomeChat() {
         ]);
         setAlerts([`Saved summary: ${summaryRecord.title}`]);
         setSuccess("Summary generated and stored locally.");
+        await loadRuntimeStatus();
         setFiles([]);
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
@@ -93,12 +128,12 @@ export function HomeChat() {
 
       setMessages((current) => [
         ...current,
-        {
-          id: `${Date.now()}-assistant`,
-          role: "assistant",
-          text: payload.response,
-          meta: payload.source === "ollama" ? "Generated locally" : `Source - ${payload.source}`,
-        },
+          {
+            id: `${Date.now()}-assistant`,
+            role: "assistant",
+            text: payload.response,
+            meta: payload.source === "model-runner" ? "Generated locally" : `Source - ${payload.source}`,
+          },
       ]);
 
       const nextAlerts = [
@@ -108,8 +143,23 @@ export function HomeChat() {
       ];
       setAlerts(nextAlerts);
       setSuccess(nextAlerts[0] ?? "Response received from the local assistant.");
+      await loadRuntimeStatus();
     } catch (requestError) {
-      setError((requestError as Error).message);
+      const message = (requestError as Error).message;
+      setError(message);
+      setMessages((current) => [
+        ...current,
+        {
+          id: `${Date.now()}-assistant-error`,
+          role: "assistant",
+          text:
+            message.includes("Failed to fetch") || message.includes("Load failed")
+              ? "The backend is unreachable, so I could not generate a reply. Start the API service and try again."
+              : `The request failed before a reply was generated: ${message}`,
+          meta: "Local runtime unavailable",
+        },
+      ]);
+      await loadRuntimeStatus();
     } finally {
       setLoading(false);
       setFiles([]);
@@ -150,8 +200,12 @@ export function HomeChat() {
             </div>
             <span className="status-chip">
               <span className="status-dot" />
-              Local model pipeline
+              {runtimeStatus.label}
             </span>
+          </div>
+          <div className="pill">
+            <strong>Runtime</strong>
+            <span>{runtimeStatus.detail}</span>
           </div>
 
           <div className="chat-thread">

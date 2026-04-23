@@ -37,7 +37,7 @@ class AppSettings:
 
     app_name: str
     model_name: str
-    ollama_url: str
+    model_runner_url: str
     encryption_key: str
     database_url: str
     request_timeout: int
@@ -52,7 +52,7 @@ class HealthStatus(BaseModel):
 
     app_name: str
     offline_mode: bool
-    ollama_available: bool
+    model_runner_available: bool
     database_url: str
     active_model: str
 
@@ -148,13 +148,21 @@ class ProjectRegistryEntry(BaseModel):
 class AnalyticsResponse(BaseModel):
     """Analytics dashboard payload."""
 
+    class TimelineEntry(BaseModel):
+        """Single analytics timeline item."""
+
+        id: str
+        title: str
+        time: str
+        status: str
+
     sessions: int
     tasks_completed_percent: int
     saved_notes: int
     scheduled_events: int
     weekly_activity: list[int]
     completion_series: list[int]
-    timeline: list[dict[str, str]]
+    timeline: list[TimelineEntry]
     preferred_feature: str
 
 
@@ -184,7 +192,7 @@ def get_settings() -> AppSettings:
     return AppSettings(
         app_name=os.getenv("APP_NAME", "Privacy AI Assistant"),
         model_name=os.getenv("MODEL_NAME", "phi3"),
-        ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434"),
+        model_runner_url=os.getenv("MODEL_RUNNER_URL", "http://localhost:11435"),
         encryption_key=os.getenv("ENCRYPTION_KEY", "local-dev-key"),
         database_url=_normalize_database_url(
             os.getenv("DATABASE_URL", "sqlite:///data/assistant.db")

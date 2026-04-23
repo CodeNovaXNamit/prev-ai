@@ -66,9 +66,9 @@ export function PrivacyPanel() {
               <div className="mt-2 font-semibold">{status.active_model}</div>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="text-sm muted">Ollama</div>
+              <div className="text-sm muted">Model runner</div>
               <div className="mt-2 font-semibold">
-                {status.ollama_available ? "Connected" : "Fallback mode"}
+                {status.model_runner_available ? "Connected" : "Fallback mode"}
               </div>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -108,7 +108,7 @@ export function PrivacyPanel() {
             </div>
             <p className="mt-3 text-lg leading-8 muted">
               The dashboard now exposes real backend status so the trust claims match the
-              runtime: Ollama connectivity, offline mode, encrypted persistence, and local storage.
+              runtime: model runner connectivity, offline mode, encrypted persistence, and local storage.
             </p>
           </div>
           <div className="rounded-[24px] border border-white/10 bg-white/5 p-5">

@@ -2,13 +2,13 @@
 
 ## Overview
 
-Privacy AI Assistant is a modular offline-first system designed to keep user data on the local device. The application uses encrypted SQLite storage, a local Ollama runtime for language-model inference, a FastAPI backend for service orchestration, and a Streamlit frontend for the user experience.
+Privacy AI Assistant is a modular offline-first system designed to keep user data on the local device. The application uses encrypted local persistence, a local Phi-3 model runner for language-model inference, a FastAPI backend for service orchestration, and a Next.js frontend for the user experience.
 
 ## High-Level Components
 
 ```text
 +------------------------+
-|   Streamlit Frontend   |
+|    Next.js Frontend    |
 | chat, tasks, notes UI  |
 +-----------+------------+
             |
@@ -21,8 +21,8 @@ Privacy AI Assistant is a modular offline-first system designed to keep user dat
       |           |
       v           v
 +-----------+  +------------------+
-|  Ollama   |  | Encrypted SQLite |
-| Phi-3 Mini|  | tasks/events/    |
+| Phi-3     |  | Encrypted Store  |
+| runner    |  | tasks/events/    |
 | local LLM |  | notes at rest    |
 +-----------+  +------------------+
 ```
@@ -45,21 +45,21 @@ Contains task CRUD logic. The module is intentionally decoupled from the UI and 
 Manages event creation, updates, listing, and deletion for local scheduling.
 
 ### `app/summarizer.py`
-Uses the local LLM for note summarization when available and falls back to a deterministic extractive summarizer when Ollama is offline.
+Uses the local LLM for note summarization when available and falls back to a deterministic extractive summarizer when the model runner is offline.
 
 ### `app/llm_engine.py`
-Integrates with Ollama at `http://localhost:11434` by default. It never calls cloud APIs and returns a local fallback response if Ollama is not running.
+Integrates with the model runner at `http://localhost:11435` by default. It never calls cloud APIs and returns a local fallback response if the runner is not reachable.
 
-### `ui/streamlit_app.py`
-Provides the interactive desktop-style interface for chatting, managing tasks, scheduling events, and summarizing notes.
+### `ui/`
+Provides the interactive Next.js interface for chatting, managing tasks, scheduling events, and summarizing notes.
 
 ## Privacy Model
 
 - All database content is stored locally.
 - Payloads are encrypted before hitting disk.
 - No external APIs are enabled by default.
-- Ollama is expected to run on the same device.
-- When Ollama is unavailable, the app degrades to local deterministic behavior instead of reaching out to external services.
+- The model runner is expected to run on the same device or Compose network.
+- When the model runner is unavailable, the app degrades to local deterministic behavior instead of reaching out to external services.
 
 ## Scalability Path
 

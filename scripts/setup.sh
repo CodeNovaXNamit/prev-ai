@@ -15,4 +15,4 @@ if [ ! -f .env ]; then
 fi
 
 mkdir -p data models
-echo "Setup complete. Start MySQL and Ollama, then run ./scripts/run.sh or docker compose up --build."
+echo "Setup complete. Add your Phi-3 GGUF model under ./models/1/, start MySQL, then run ./scripts/run.sh or docker compose up --build."

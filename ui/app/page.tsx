@@ -14,7 +14,7 @@ const featureCards = [
   {
     title: "Offline chat",
     copy:
-      "Conversational AI powered by Phi-3 through Ollama, with responses generated locally and context preserved inside your own stack.",
+      "Conversational AI powered by Phi-3 through the local model runner, with responses generated locally and context preserved inside your own stack.",
     bullets: [
       "No cloud dependency once configured",
       "No remote memory layer or hidden sync",
@@ -34,7 +34,7 @@ const featureCards = [
   {
     title: "Notes and summaries",
     copy:
-      "Long notes stay readable. PrivAI can summarize local text through the Ollama model and keep the result saved in your backend database.",
+      "Long notes stay readable. PrivAI can summarize local text through the Phi-3 runner and keep the result saved in your backend database.",
     bullets: [
       "Upload files from chat or summarize manually",
       "Saved summaries remain local",
@@ -118,7 +118,7 @@ export default function LandingPage() {
                 <strong>100% local</strong> runtime
               </span>
               <span className="hero-chip">
-                <strong>Phi-3</strong> via Ollama
+                <strong>Phi-3</strong> via model runner
               </span>
               <span className="hero-chip">
                 <strong>MySQL</strong> persistence
@@ -224,7 +224,7 @@ export default function LandingPage() {
           </div>
           <p>
             The landing page now reflects the real stack already running in this repo: Next.js on the
-            frontend, FastAPI on the backend, MySQL for persisted records, and Ollama for local inference.
+            frontend, FastAPI on the backend, MySQL for persisted records, and a local model runner for inference.
           </p>
         </div>
 
@@ -318,7 +318,7 @@ export default function LandingPage() {
             <h2>Your assistant. Your laptop. Your stack.</h2>
             <p>
               The new UI has replaced the old frontend while keeping the existing backend contract,
-              Docker setup, database workflow, and local Ollama integration intact.
+              Docker setup, database workflow, and local model runner integration intact.
             </p>
             <div className="button-row">
               <Link className="button button-primary" href="/chat">

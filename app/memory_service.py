@@ -309,7 +309,11 @@ class UserMemoryService:
             include_core_identity=False,
         ).strip()
         candidate = self.validate_extracted_facts(candidate)
-        if not candidate or candidate.upper() in {"NO_NEW_FACT", "NONE"} or "Ollama is not running" in candidate:
+        if (
+            not candidate
+            or candidate.upper() in {"NO_NEW_FACT", "NONE"}
+            or "The local model runner is unavailable" in candidate
+        ):
             return []
 
         extracted: list[tuple[str, str]] = []

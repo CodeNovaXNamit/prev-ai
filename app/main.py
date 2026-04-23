@@ -135,7 +135,7 @@ def health_check() -> HealthStatus:
     return HealthStatus(
         app_name=settings.app_name,
         offline_mode=not settings.allow_external_network,
-        ollama_available=llm_engine.is_available(),
+        model_runner_available=llm_engine.is_available(),
         database_url=settings.database_url,
         active_model=settings.model_name,
     )

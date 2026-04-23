@@ -1,4 +1,4 @@
-"""Local LLM integration via Ollama."""
+"""Local LLM integration via the Phi-3 model runner."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ CORE_NEGATIVE_CONSTRAINTS = (
 
 
 class LocalLLMEngine:
-    """Wrapper for a local Ollama model with deterministic offline fallbacks."""
+    """Wrapper for the local Phi-3 runner with deterministic offline fallbacks."""
 
     _availability_cache: dict[tuple[str, str], tuple[float, bool]] = {}
     _availability_ttl_seconds = 5.0
@@ -38,28 +38,32 @@ class LocalLLMEngine:
     def __init__(
         self,
         model_name: str | None = None,
-        ollama_url: str | None = None,
+        model_runner_url: str | None = None,
         timeout: int | None = None,
     ) -> None:
         settings = get_settings()
         self.model_name = model_name or settings.model_name
-        self.ollama_url = (ollama_url or settings.ollama_url).rstrip("/")
+        self.model_runner_url = (model_runner_url or settings.model_runner_url).rstrip("/")
         self.timeout = timeout or settings.request_timeout
 
     def is_available(self) -> bool:
-        """Check whether the local Ollama service is reachable."""
-        cache_key = (self.model_name, self.ollama_url)
+        """Check whether the local model runner is reachable."""
+        cache_key = (self.model_name, self.model_runner_url)
         now = datetime.now().timestamp()
         cached = self._availability_cache.get(cache_key)
         if cached and now - cached[0] < self._availability_ttl_seconds:
             return cached[1]
 
         try:
-            response = requests.get(f"{self.ollama_url}/api/tags", timeout=3)
+            response = requests.get(f"{self.model_runner_url}/health", timeout=3)
             response.raise_for_status()
             payload = response.json()
-            models = payload.get("models", [])
-            available = any(model.get("name", "").startswith(self.model_name) for model in models) or bool(models)
+            active_model = str(payload.get("active_model", ""))
+            normalized_active = self._normalize_model_token(active_model)
+            normalized_configured = self._normalize_model_token(self.model_name)
+            available = payload.get("status") == "ok" and (
+                not normalized_configured or normalized_configured in normalized_active
+            )
             self._availability_cache[cache_key] = (now, available)
             return available
         except requests.RequestException:
@@ -74,31 +78,46 @@ class LocalLLMEngine:
         include_core_identity: bool = True,
     ) -> str:
         """Generate text locally, falling back to a deterministic local response."""
-        payload: dict[str, Any] = {
-            "model": self.model_name,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": 0.1,
-                "top_p": 0.9,
-                "num_predict": 220,
-            },
+        generation_prompt = prompt.strip()
+        built_system_prompt = self._build_system_prompt(
+            system_prompt,
+            include_core_identity=include_core_identity,
+        )
+        if built_system_prompt:
+            generation_prompt = f"{built_system_prompt}\n\n{generation_prompt}"
+
+        effective_options: dict[str, Any] = {
+            "temperature": 0.1,
+            "top_p": 0.9,
+            "num_predict": 220,
         }
         if options:
-            payload["options"].update(options)
-        payload["system"] = self._build_system_prompt(system_prompt, include_core_identity=include_core_identity)
+            effective_options.update(options)
 
+        payload: dict[str, Any] = {
+            "prompt": generation_prompt,
+            "temperature": effective_options["temperature"],
+            "max_tokens": effective_options["num_predict"],
+        }
+
+        generated_text = self._request_generation(payload)
+        if generated_text:
+            return generated_text
+        return self._fallback(prompt)
+
+    def _request_generation(self, payload: dict[str, Any]) -> str | None:
+        """Send a generation request and return normalized text when available."""
         try:
             response = requests.post(
-                f"{self.ollama_url}/api/generate",
+                f"{self.model_runner_url}/v1/chat",
                 json=payload,
                 timeout=self.timeout,
             )
             response.raise_for_status()
             data = response.json()
-            return data.get("response", "").strip() or self._fallback(prompt)
+            return self._extract_generated_text(data)
         except requests.RequestException:
-            return self._fallback(prompt)
+            return None
 
     def chat(self, message: str, context: dict[str, Any] | None = None) -> tuple[str, str]:
         """Respond conversationally using the local model."""
@@ -111,7 +130,15 @@ class LocalLLMEngine:
             user_query=message,
             retrieved_context=selected,
         )
-        return self.generate(prompt), "ollama"
+        payload = {
+            "prompt": self._build_system_prompt(None, include_core_identity=True) + "\n\n" + prompt,
+            "temperature": 0.1,
+            "max_tokens": 220,
+        }
+        generated_text = self._request_generation(payload)
+        if generated_text:
+            return generated_text, "model-runner"
+        return self._chat_fallback(message, context), "fallback"
 
     def get_extraction_prompt(self, user_input: str) -> str:
         """Build the clean extraction prompt with no static grounding."""
@@ -258,9 +285,9 @@ class LocalLLMEngine:
         return None
 
     def _fallback(self, prompt: str) -> str:
-        """Local deterministic fallback when Ollama is unavailable."""
+        """Local deterministic fallback when the model runner is unavailable."""
         if "summary" in prompt.lower():
-            return "Local summary fallback: Ollama is unavailable, but the note was processed locally."
+            return "Local summary fallback: the model runner is unavailable, but the note was processed locally."
         return self._chat_fallback(prompt, {})
 
     def _chat_fallback(self, message: str, context: dict[str, Any]) -> str:
@@ -285,7 +312,7 @@ class LocalLLMEngine:
             return self._format_recent_messages(context.get("recent_messages", []))
 
         return (
-            "Ollama is not running, so full free-form chat is unavailable. "
+            "The local model runner is unavailable, so full free-form chat is unavailable. "
             "I stayed fully offline. I can still answer from your local tasks, schedule, notes, and saved profile."
         )
 
@@ -493,3 +520,37 @@ class LocalLLMEngine:
             return datetime.fromisoformat(value).hour
         except ValueError:
             return None
+
+    @staticmethod
+    def _normalize_model_token(value: str) -> str:
+        """Normalize model names so aliases like phi3 and Phi-3 compare consistently."""
+        return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+    @staticmethod
+    def _extract_generated_text(data: dict[str, Any]) -> str | None:
+        """Handle both the local runner response shape and OpenAI-style chat responses."""
+        direct_text = str(data.get("text", "")).strip()
+        if direct_text:
+            return direct_text
+
+        choices = data.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return None
+
+        first_choice = choices[0]
+        if not isinstance(first_choice, dict):
+            return None
+
+        choice_text = str(first_choice.get("text", "")).strip()
+        if choice_text:
+            return choice_text
+
+        message = first_choice.get("message")
+        if isinstance(message, dict):
+            content = message.get("content", "")
+            if isinstance(content, str):
+                normalized = content.strip()
+                if normalized:
+                    return normalized
+
+        return None

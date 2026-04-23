@@ -18,4 +18,4 @@ if (-not (Test-Path ".env")) {
 New-Item -ItemType Directory -Force -Path "data" | Out-Null
 New-Item -ItemType Directory -Force -Path "models" | Out-Null
 
-Write-Host "Setup complete. Start MySQL and Ollama, then run scripts\\run.ps1 or docker compose up --build."
+Write-Host "Setup complete. Add your Phi-3 GGUF model under models\\1\\, start MySQL, then run scripts\\run.ps1 or docker compose up --build."

@@ -76,7 +76,7 @@ export function DashboardView() {
                 </div>
                 <span className="status-chip">
                   <span className="status-dot" />
-                  {status.health.ollama_available ? "connected" : "fallback"}
+                  {status.health.model_runner_available ? "connected" : "fallback"}
                 </span>
               </div>
               <div className="info-rows">
@@ -189,8 +189,8 @@ export function DashboardView() {
               </div>
             </div>
             <div className="timeline-list">
-              {(analytics?.timeline ?? []).map((entry, index) => (
-                <div key={`${entry.title}-${entry.time}-${entry.status}-${index}`} className="timeline-item">
+              {(analytics?.timeline ?? []).map((entry) => (
+                <div key={entry.id} className="timeline-item">
                   <div>
                     <strong>{entry.title}</strong>
                     <p className="muted-text">{entry.status}</p>

@@ -13,7 +13,7 @@ const fallbackAnalytics: AnalyticsPayload = {
   scheduled_events: 0,
   weekly_activity: [0, 0, 0, 0, 0, 0, 0],
   completion_series: [0, 0, 0, 0, 0, 0, 0],
-  timeline: [{ title: "Awaiting backend data", time: "00:00", status: "idle" }],
+  timeline: [{ id: "awaiting-backend-data", title: "Awaiting backend data", time: "00:00", status: "idle" }],
   preferred_feature: "chat",
 };
 
@@ -217,8 +217,8 @@ export function AnalyticsPanel({
           Timeline tracker
         </div>
         <div className="mt-5 space-y-4">
-          {analytics.timeline.map((item, index) => (
-            <div key={`${item.title}-${item.time}-${item.status}-${index}`} className="flex gap-3">
+          {analytics.timeline.map((item) => (
+            <div key={item.id} className="flex gap-3">
               <div className="flex flex-col items-center">
                 <div className="mt-1 h-3 w-3 rounded-full bg-[var(--accent)]" />
                 <div className="h-full w-px bg-white/10" />

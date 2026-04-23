@@ -11,7 +11,7 @@ http://127.0.0.1:8000
 ## Endpoints
 
 ### `GET /health`
-Returns application status, database path, and whether the local Ollama service is reachable.
+Returns application status, database path, and whether the local model runner is reachable.
 
 ### `POST /chat`
 Request body:

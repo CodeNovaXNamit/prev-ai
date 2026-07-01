@@ -24,5 +24,11 @@ ui/.next
 node_modules
 .next
 *.log
+*.out.log
+*.err.log
 .env
 .env.local
+answers.txt
+last_message.txt
+last txt of 19th.txt
+model-runner

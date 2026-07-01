@@ -18,6 +18,8 @@ coverage.xml
 *.db
 *.sqlite3
 *.log
+*.out.log
+*.err.log
 
 # Environment and secrets
 .env
@@ -49,6 +51,12 @@ htmlcov/
 models/
 data/
 !.gitkeep
+
+# Local notes and one-off artifacts
+answers.txt
+last_message.txt
+last txt of 19th.txt
+model-runner/
 
 # Tooling caches
 alembic/versions/__pycache__/

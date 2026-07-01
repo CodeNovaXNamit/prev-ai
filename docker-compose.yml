@@ -20,7 +20,7 @@ services:
 
   phi3-runner:
     build:
-      context: ./model-runner/python/phi3_runner
+      context: ./phi3_runner
       dockerfile: Dockerfile
     container_name: phi3_runner
     restart: unless-stopped

@@ -8,7 +8,7 @@ Privacy AI Assistant is a local-first full-stack workspace with a React-based Ne
 - `app/`: FastAPI backend and service layer
 - `MySQL + SQLAlchemy`: structured persistence for tasks, events, notes, and behavior analytics
 - `Fernet`: encrypted task, note, and schedule content at rest
-- `model-runner/python/phi3_runner/`: local Phi-3 GGUF and MiniLM inference service
+- `phi3_runner/`: local Phi-3 GGUF and MiniLM inference service
 - `Alembic`: schema migration layer
 - `tests/`: API, encryption, ORM, and LLM fallback coverage
 
@@ -65,7 +65,13 @@ System status: `http://localhost:8000/system/status`
 docker compose up --build -d
 ```
 
-The backend container calls the `phi3-runner` service over Docker Compose networking using `MODEL_RUNNER_URL=http://phi3-runner:8080`. The runner loads the GGUF file from the mounted `./models` volume.
+The backend container calls the `phi3-runner` service over Docker Compose networking using `MODEL_RUNNER_URL=http://phi3-runner:8080`. The runner code lives in `phi3_runner/` and loads the GGUF file from the mounted `./models` volume.
+
+## GitHub Upload Notes
+
+- Do not commit `.env`, local database files, model weights, or Chroma data.
+- Keep large GGUF assets under `./models` locally; this repo only tracks the application code and placeholders.
+- The custom inference service used by this project is vendored in `phi3_runner/`, so a fresh clone does not depend on a missing nested repository.
 
 Do not commit `.env` to GitHub. Keep secrets and your generated Fernet key only in local environment files or GitHub secrets.
 
